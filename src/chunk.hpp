@@ -14,7 +14,7 @@ class Chunk {
 public:
   Chunk();
 
-  void display() const;
+  friend std::ostream &operator<<(std::ostream &os, const Chunk &chunk);
 
-  Chunk& write(uint8_t byte);
+  Chunk &write(uint8_t byte);
 };

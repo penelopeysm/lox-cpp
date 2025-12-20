@@ -5,29 +5,35 @@
 
 Chunk::Chunk() : code() {}
 
-void Chunk::display() const {
-  std::cout << " --- Chunk with " << code.size() << " bytes --- " << std::endl;
-  for (size_t i = 0; i < code.size(); ++i) {
-    uint8_t byte = code[i];
+std::ostream &operator<<(std::ostream &os, const Chunk &chunk) {
+  // NOTE: "\n" vs std::endl: the latter always flushes the stream, which is
+  // not always what we want (e.g. if writing to a file, it may be more
+  // efficient to buffer).
+  os << " --- Chunk with " << chunk.code.size() << " bytes --- " << "\n";
+  for (size_t i = 0; i < chunk.code.size(); ++i) {
+    uint8_t byte = chunk.code[i];
     if (i % 16 == 0) {
-      std::cout << std::setw(4) << std::setfill('0') << i << ": ";
+      os << std::setw(4) << std::setfill('0') << i << ": ";
     }
-    std::cout << std::hex << std::setw(2) << std::setfill('0')
-              << static_cast<int>(byte) << " ";
-    if (i % 16 == 15 || i == code.size() - 1) {
-      std::cout << std::endl;
+    // NOTE: static_cast is a builtin, not imported from anywhere. For reasons
+    // I haven't yet figured out, it's safer than using C-style `(int)byte`.
+    os << std::hex << std::setw(2) << std::setfill('0')
+       << static_cast<int>(byte) << " ";
+    if (i % 16 == 15 || i == chunk.code.size() - 1) {
+      os << "\n";
     }
   }
-  std::cout << std::dec;
+  os << std::dec;
+  return os;
 }
 
 Chunk &Chunk::write(uint8_t byte) {
   try {
+    // NOTE: try/catch are (almost?) zero-cost in the non-exception path
     code.push_back(byte);
   } catch (const std::bad_alloc &) {
     // Gracefully handle OOM
-    std::cerr << "loxc: out of memory while writing to Chunk" << std::endl;
-    std::exit(EXIT_FAILURE);
+    throw std::runtime_error("loxc: Out of memory while writing to Chunk");
   }
   return *this;
 }

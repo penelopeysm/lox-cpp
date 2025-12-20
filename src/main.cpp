@@ -4,6 +4,6 @@
 int main() {
   std::cout << "Hello, world." << std::endl;
   Chunk chunk;
-  chunk.display();
+  std::cout << chunk;
   return 0;
 }
