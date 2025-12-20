@@ -1,5 +1,5 @@
 CXX := clang++
-CXXFLAGS := -std=c++20 -Wall -Wextra -Werror
+CXXFLAGS := -std=c++20 -Wall -Wextra -Iinclude
 TARGET := loxc
 
 .PHONY: clean all
@@ -9,7 +9,7 @@ all: $(TARGET)
 clean:
 	rm -f $(OBJS) $(TARGET)
 
-SRCS := src/main.cpp
+SRCS := $(wildcard src/*.cpp)
 
 OBJS := $(SRCS:.cpp=.o)
 %.o: %.cpp
