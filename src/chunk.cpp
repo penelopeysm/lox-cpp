@@ -32,7 +32,9 @@ Chunk &Chunk::write(uint8_t byte) {
     // NOTE: try/catch are (almost?) zero-cost in the non-exception path
     code.push_back(byte);
   } catch (const std::bad_alloc &) {
-    // Gracefully handle OOM
+    // Gracefully handle OOM.
+    // NOTE: std::vector will clean up its own memory if an exception is
+    // thrown, we don't need to do anything special to avoid leaks!
     throw std::runtime_error("loxc: Out of memory while writing to Chunk");
   }
   return *this;
