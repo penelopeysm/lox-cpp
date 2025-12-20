@@ -15,4 +15,6 @@ public:
   Chunk();
 
   void display() const;
+
+  Chunk& write(uint8_t byte);
 };
