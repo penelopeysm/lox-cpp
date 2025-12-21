@@ -46,6 +46,22 @@ lox::Chunk &lox::Chunk::reset() {
   return *this;
 }
 
+lox::Chunk &lox::Chunk::add_constant(lox::Value value) {
+  try {
+    constants.push_back(value);
+  } catch (const std::bad_alloc &) {
+    throw std::runtime_error(
+        "loxc: Out of memory while adding constant to Chunk");
+  }
+  return *this;
+}
+
+std::ostream &lox::Chunk::disassemble(std::ostream &os) const {
+  // TODO: Implement this properly
+  return os << *this;
+}
+
+// This does a hex dump, not a proper disassembly.
 std::ostream &lox::operator<<(std::ostream &os, const lox::Chunk &chunk) {
   // NOTE: "\n" vs std::endl: the latter always flushes the stream, which is
   // not always what we want (e.g. if writing to a file, it may be more
