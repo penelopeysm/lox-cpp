@@ -1,3 +1,5 @@
 *.o
 *.d
+compile_commands.json
 loxc
+.cache

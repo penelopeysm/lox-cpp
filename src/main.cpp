@@ -3,7 +3,8 @@
 
 int main() {
   std::cout << "Hello, world." << std::endl;
-  Chunk chunk;
+  lox::Chunk chunk;
+  chunk.write(lox::OpCode::RETURN);
   std::cout << chunk;
   return 0;
 }

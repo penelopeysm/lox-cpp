@@ -1,10 +1,16 @@
 #pragma once
 
+#include "value.hpp"
 #include <cstdint>
 #include <vector>
 
-enum OpCode {
-  OP_RETURN,
+namespace lox {
+
+// NOTE: `enum class` means that you always have to qualify the names with the
+// enum class name, e.g., OpCode::RETURN. If you use `enum` instead, then
+// `RETURN` would be in the top-level scope.
+enum class OpCode {
+  RETURN,
   // more to come
 };
 
@@ -13,13 +19,14 @@ class Chunk {
   // it. It has two different notions: size() is the number of elements stored,
   // capacity() is the number of elements it can store without resizing.
   std::vector<uint8_t> code;
+  std::vector<lox::Value> constants;
 
 public:
   Chunk();
 
   size_t size() const;
   size_t capacity() const;
-  Chunk &write(uint8_t byte);
+  Chunk &write(OpCode byte);
   Chunk &reset();
 
   // NOTE: `friend` allows the implementation of this function to access
@@ -34,3 +41,5 @@ public:
   // `chunk << std::cout` instead of the more natural `std::cout << chunk`.
   friend std::ostream &operator<<(std::ostream &os, const Chunk &chunk);
 };
+
+} // namespace lox

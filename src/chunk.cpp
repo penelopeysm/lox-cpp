@@ -3,7 +3,7 @@
 #include <iomanip>
 #include <iostream>
 
-Chunk::Chunk() : code() {}
+lox::Chunk::Chunk() : code() {}
 
 // NOTE: Sometimes, tiny functions like these are defined inside the header.
 // There are a few reasons why one might do that:
@@ -22,18 +22,14 @@ Chunk::Chunk() : code() {}
 //      importing a header, instead of having cpp files which must be compiled
 //      and linked against. If that is the intent, then all definitions must be
 //      contained in the header files.
-size_t Chunk::size() const {
-  return code.size();
-}
+size_t lox::Chunk::size() const { return code.size(); }
 
-size_t Chunk::capacity() const {
-  return code.capacity();
-}
+size_t lox::Chunk::capacity() const { return code.capacity(); }
 
-Chunk &Chunk::write(uint8_t byte) {
+lox::Chunk &lox::Chunk::write(OpCode byte) {
+  // NOTE: try/catch are (almost?) zero-cost in the non-exception path
   try {
-    // NOTE: try/catch are (almost?) zero-cost in the non-exception path
-    code.push_back(byte);
+    code.push_back(static_cast<uint8_t>(byte));
   } catch (const std::bad_alloc &) {
     // Gracefully handle OOM.
     // NOTE: std::vector will clean up its own memory if an exception is
@@ -43,14 +39,14 @@ Chunk &Chunk::write(uint8_t byte) {
   return *this;
 }
 
-Chunk &Chunk::reset() {
+lox::Chunk &lox::Chunk::reset() {
   // NOTE: clear() removes elements and so size() will return 0, but does not
   // change capacity
   code.clear();
   return *this;
 }
 
-std::ostream &operator<<(std::ostream &os, const Chunk &chunk) {
+std::ostream &lox::operator<<(std::ostream &os, const lox::Chunk &chunk) {
   // NOTE: "\n" vs std::endl: the latter always flushes the stream, which is
   // not always what we want (e.g. if writing to a file, it may be more
   // efficient to buffer).
@@ -71,4 +67,3 @@ std::ostream &operator<<(std::ostream &os, const Chunk &chunk) {
   os << std::dec;
   return os;
 }
-
