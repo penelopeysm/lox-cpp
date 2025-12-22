@@ -44,7 +44,7 @@ TEST_RUNNER_EXECUTABLE := tests/test_runner
 # you (even though it does install catch2-with-main when you install catch 2).
 CATCH2_FLAGS := $(shell pkg-config --cflags --libs catch2-with-main)
 $(TEST_RUNNER_EXECUTABLE): $(OBJS) $(TEST_OBJS)
-	$(CXX) $(TEST_CXXFLAGS) $(CATCH2_FLAGS) -o $(TEST_RUNNER_EXECUTABLE) $^
+	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_RUNNER_EXECUTABLE) $^ $(CATCH2_FLAGS)
 
 test: $(APP) $(TEST_RUNNER_EXECUTABLE)
 	./$(TEST_RUNNER_EXECUTABLE)

@@ -1,6 +1,7 @@
 #include "chunk.hpp"
 #include "value.hpp"
 #include <cstdlib>
+#include <format>
 #include <iostream>
 
 // NOTE: This is an 'anonymous namespace': everything defined inside here can
