@@ -43,6 +43,9 @@ TEST_RUNNER_EXECUTABLE := tests/test_runner
 # $(brew --prefix catch2)/share/pkgconfig. Homebrew doesn't really expose this to
 # you (even though it does install catch2-with-main when you install catch 2).
 CATCH2_FLAGS := $(shell pkg-config --cflags --libs catch2-with-main)
+# NOTE: $(CATCH2_FLAGS) MUST come after the object files, because the linker
+# needs to see the object files first to know what symbols are needed from the
+# Catch2 library. It can't 'revisit' older object files to resolve symbols.
 $(TEST_RUNNER_EXECUTABLE): $(OBJS) $(TEST_OBJS)
 	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_RUNNER_EXECUTABLE) $^ $(CATCH2_FLAGS)
 
