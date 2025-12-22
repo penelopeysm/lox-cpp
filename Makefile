@@ -9,7 +9,7 @@ TARGET := loxc
 # declare this, and there's a file named "clean" in your directory, then
 # running `make clean` will cause Make to try to build that file, instead
 # of the `clean` target.
-.PHONY: clean all
+.PHONY: clean all test
 
 # NOTE: The first target is always the default target, i.e., the target that
 # is built when you just run `make` without any arguments.
@@ -33,5 +33,17 @@ DEPS := $(SRCS:.cpp=.d)
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
+TEST_RUNNER_EXECUTABLE := tests/test_runner
+# NOTE: I had to find the name `catch2-with-main` by inspecting the contents of
+# $(brew --prefix catch2)/share/pkgconfig. Homebrew doesn't really expose this to
+# you (even though it does install catch2-with-main when you install catch 2).
+CATCH2_FLAGS := $(shell pkg-config --cflags --libs catch2-with-main)
+$(TEST_RUNNER_EXECUTABLE): tests/main.cpp
+	$(CXX) $(CXXFLAGS) $(CATCH2_FLAGS) -o $(TEST_RUNNER_EXECUTABLE) tests/main.cpp
+
+test: $(TARGET) $(TEST_RUNNER_EXECUTABLE)
+	./$(TEST_RUNNER_EXECUTABLE)
+
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET)
+	rm -f $(OBJS) $(DEPS) $(TARGET) tests/test_runner
+

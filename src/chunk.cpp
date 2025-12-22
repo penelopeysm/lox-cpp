@@ -1,7 +1,30 @@
 #include "chunk.hpp"
+#include "value.hpp"
 #include <cstdlib>
-#include <iomanip>
 #include <iostream>
+
+// NOTE: This is an 'anonymous namespace': everything defined inside here can
+// be used in the same file without qualification, but is not visible outside
+// this file. This helps to avoid e.g. name clashes with other translation
+// units.
+namespace {
+std::ostream& print_offset(std::ostream& os, size_t offset) {
+  // NOTE: The old-style way of printing formatted output was to set flags on
+  // the output stream `os`.
+  //   return os << std::setw(4) << std::setfill('0') << offset << ": ";
+  // This still works, but the problem is that it changes the state of the
+  // output stream, so subsequent output may end up being zero-padded as well.
+  // In C++20 you can use std::format instead which does not have this problem.
+  return os << std::format("{:04} ", offset);
+}
+
+std::ostream& print_byte(std::ostream& os, uint8_t byte) {
+  // NOTE: static_cast is a builtin, not imported from anywhere. For reasons
+  // I haven't yet figured out, it's safer than using C-style `(int)byte`.
+  return os << std::format("{:02x} ", byte);
+}
+
+} // namespace
 
 lox::Chunk::Chunk() : code() {}
 
@@ -26,11 +49,17 @@ size_t lox::Chunk::size() const { return code.size(); }
 
 size_t lox::Chunk::capacity() const { return code.capacity(); }
 
-lox::Chunk &lox::Chunk::write(OpCode byte) {
+lox::Chunk& lox::Chunk::write(uint8_t byte, size_t line) {
   // NOTE: try/catch are (almost?) zero-cost in the non-exception path
   try {
-    code.push_back(static_cast<uint8_t>(byte));
-  } catch (const std::bad_alloc &) {
+    size_t nbytes = code.size();
+    code.push_back(byte);
+    // Check if the line number has changed since the last recorded DebugInfo;
+    // if so, we need to add a new entry.
+    if (debug_info.empty() || debug_info.back().line != line) {
+      debug_info.push_back(DebugInfo(nbytes, line));
+    }
+  } catch (const std::bad_alloc&) {
     // Gracefully handle OOM.
     // NOTE: std::vector will clean up its own memory if an exception is
     // thrown, we don't need to do anything special to avoid leaks!
@@ -39,44 +68,71 @@ lox::Chunk &lox::Chunk::write(OpCode byte) {
   return *this;
 }
 
-lox::Chunk &lox::Chunk::reset() {
+lox::Chunk& lox::Chunk::write(OpCode opcode, size_t line) {
+  return lox::Chunk::write(static_cast<uint8_t>(opcode), line);
+}
+
+lox::Chunk& lox::Chunk::reset() {
   // NOTE: clear() removes elements and so size() will return 0, but does not
   // change capacity
   code.clear();
   return *this;
 }
 
-lox::Chunk &lox::Chunk::add_constant(lox::Value value) {
+lox::Chunk& lox::Chunk::push_constant(lox::Value value) {
   try {
     constants.push_back(value);
-  } catch (const std::bad_alloc &) {
+  } catch (const std::bad_alloc&) {
     throw std::runtime_error(
         "loxc: Out of memory while adding constant to Chunk");
   }
   return *this;
 }
 
-std::ostream &lox::Chunk::disassemble(std::ostream &os) const {
-  // TODO: Implement this properly
-  return os << *this;
+std::ostream& lox::operator<<(std::ostream& os, const lox::Chunk& chunk) {
+  size_t nbytes = chunk.code.size();
+  os << "--- Disassembly of Chunk with " << nbytes << " bytes ---" << "\n";
+  size_t offset = 0;
+  while (offset < nbytes) {
+    print_offset(os, offset);
+    uint8_t instruction = chunk.code[offset];
+
+    switch (static_cast<OpCode>(instruction)) {
+    case OpCode::CONSTANT: {
+      uint8_t constant_index = chunk.code[offset + 1];
+      Value constant = chunk.constants[constant_index];
+      os << "CONSTANT " << constant << "\n";
+      offset += 2;
+      break;
+    }
+    case OpCode::RETURN: {
+      os << "RETURN\n";
+      offset += 1;
+      break;
+    }
+    }
+  }
+
+  // We SHOULD have printed all bytes, so this is a sanity check.
+  if (offset != nbytes) {
+    throw std::runtime_error(
+        "loxc: Disassembly error: did not consume all bytes");
+  }
+  return os;
 }
 
-// This does a hex dump, not a proper disassembly.
-std::ostream &lox::operator<<(std::ostream &os, const lox::Chunk &chunk) {
+std::ostream& lox::Chunk::hex_dump(std::ostream& os) const {
+  size_t nbytes = code.size();
   // NOTE: "\n" vs std::endl: the latter always flushes the stream, which is
   // not always what we want (e.g. if writing to a file, it may be more
   // efficient to buffer).
-  os << " --- Chunk with " << chunk.code.size() << " bytes --- " << "\n";
-  for (size_t i = 0; i < chunk.code.size(); ++i) {
-    uint8_t byte = chunk.code[i];
-    if (i % 16 == 0) {
-      os << std::setw(4) << std::setfill('0') << i << ": ";
-    }
-    // NOTE: static_cast is a builtin, not imported from anywhere. For reasons
-    // I haven't yet figured out, it's safer than using C-style `(int)byte`.
-    os << std::hex << std::setw(2) << std::setfill('0')
-       << static_cast<int>(byte) << " ";
-    if (i % 16 == 15 || i == chunk.code.size() - 1) {
+  os << "--- Hex dump of Chunk with " << nbytes << " bytes ---" << "\n";
+  for (size_t offset = 0; offset < nbytes; ++offset) {
+    uint8_t byte = code[offset];
+    if (offset % 16 == 0)
+      print_offset(os, offset);
+    print_byte(os, byte);
+    if (offset % 16 == 15 || offset == nbytes - 1) {
       os << "\n";
     }
   }

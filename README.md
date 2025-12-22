@@ -8,8 +8,15 @@ make
 ## generating `compile_commands.json`
 
 this is needed to make clang-based tools (like clangd) work properly.
-download [bear](https://github.com/rizsotto/Bear) (e.g. via Homebrew) and run:
 
 ```bash
+brew install bear
 bear -- make
+```
+
+## tests
+
+```bash
+brew install pkg-config catch2
+make test
 ```
