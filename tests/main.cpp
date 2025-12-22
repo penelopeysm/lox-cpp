@@ -1,5 +1,7 @@
+#include "chunk.hpp"
 #include <catch2/catch_test_macros.hpp>
 
 TEST_CASE("Sample test case") {
-    REQUIRE(1 + 1 == 2);
+  lox::Chunk chunk;
+  REQUIRE(chunk.size() == 0);
 }

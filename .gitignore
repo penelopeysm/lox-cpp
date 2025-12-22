@@ -3,3 +3,4 @@
 compile_commands.json
 loxc
 .cache
+tests/test_runner

@@ -11,8 +11,11 @@ this is needed to make clang-based tools (like clangd) work properly.
 
 ```bash
 brew install bear
-bear -- make
+make clean
+bear -- make test
 ```
+
+note that building the test target also builds the main programme (so this ensures that `compile_commands.json` will contain entries for both the main programme and the tests).
 
 ## tests
 

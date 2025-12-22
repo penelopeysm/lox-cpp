@@ -2,8 +2,7 @@ CXX := clang++
 # NOTE: -MMD and -MP are used to generate a list of (header and source)
 # dependencies for each object file and header file. These have the `.d`
 # extension.
-CXXFLAGS := -std=c++20 -Wall -Wextra -Iinclude -MMD -MP
-TARGET := loxc
+CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP -Isrc
 
 # NOTE: Phony targets are targets that aren't actual files. If you don't
 # declare this, and there's a file named "clean" in your directory, then
@@ -13,7 +12,7 @@ TARGET := loxc
 
 # NOTE: The first target is always the default target, i.e., the target that
 # is built when you just run `make` without any arguments.
-all: $(TARGET)
+all: $(APP)
 
 SRCS := $(wildcard src/*.cpp)
 OBJS := $(SRCS:.cpp=.o)
@@ -30,20 +29,25 @@ DEPS := $(SRCS:.cpp=.d)
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJS)
+APP := loxc
+APP_OBJS := app/main.o
+$(APP): $(OBJS) $(APP_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
+TEST_SRCS := $(wildcard tests/*.cpp)
+TEST_OBJS := $(TEST_SRCS:.cpp=.o)
+TEST_DEPS := $(TEST_SRCS:.cpp=.d)
+-include $(TEST_DEPS)
 TEST_RUNNER_EXECUTABLE := tests/test_runner
 # NOTE: I had to find the name `catch2-with-main` by inspecting the contents of
 # $(brew --prefix catch2)/share/pkgconfig. Homebrew doesn't really expose this to
 # you (even though it does install catch2-with-main when you install catch 2).
 CATCH2_FLAGS := $(shell pkg-config --cflags --libs catch2-with-main)
-$(TEST_RUNNER_EXECUTABLE): tests/main.cpp
-	$(CXX) $(CXXFLAGS) $(CATCH2_FLAGS) -o $(TEST_RUNNER_EXECUTABLE) tests/main.cpp
+$(TEST_RUNNER_EXECUTABLE): $(OBJS) $(TEST_OBJS)
+	$(CXX) $(TEST_CXXFLAGS) $(CATCH2_FLAGS) -o $(TEST_RUNNER_EXECUTABLE) $^
 
-test: $(TARGET) $(TEST_RUNNER_EXECUTABLE)
+test: $(APP) $(TEST_RUNNER_EXECUTABLE)
 	./$(TEST_RUNNER_EXECUTABLE)
 
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET) tests/test_runner
-
+	rm -f $(APP_OBJS) $(OBJS) $(TEST_OBJS) $(DEPS) $(TEST_DEPS) $(APP) $(TEST_RUNNER_EXECUTABLE)
