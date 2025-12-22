@@ -27,7 +27,7 @@ std::ostream& print_byte(std::ostream& os, uint8_t byte) {
 
 } // namespace
 
-lox::Chunk::Chunk() : code() {}
+lox::Chunk::Chunk() : code(), constants(), debuginfo() {}
 
 // NOTE: Sometimes, tiny functions like these are defined inside the header.
 // There are a few reasons why one might do that:
@@ -50,6 +50,8 @@ size_t lox::Chunk::size() const { return code.size(); }
 
 size_t lox::Chunk::capacity() const { return code.capacity(); }
 
+uint8_t lox::Chunk::at(size_t index) const { return code.at(index); }
+
 lox::Chunk& lox::Chunk::write(uint8_t byte, size_t line) {
   // NOTE: try/catch are (almost?) zero-cost in the non-exception path
   try {
@@ -57,8 +59,8 @@ lox::Chunk& lox::Chunk::write(uint8_t byte, size_t line) {
     code.push_back(byte);
     // Check if the line number has changed since the last recorded DebugInfo;
     // if so, we need to add a new entry.
-    if (debug_info.empty() || debug_info.back().line != line) {
-      debug_info.push_back(DebugInfo(nbytes, line));
+    if (debuginfo.empty() || debuginfo.back().line != line) {
+      debuginfo.push_back(DebugInfo(nbytes, line));
     }
   } catch (const std::bad_alloc&) {
     // Gracefully handle OOM.
@@ -90,35 +92,74 @@ lox::Chunk& lox::Chunk::push_constant(lox::Value value) {
   return *this;
 }
 
-std::ostream& lox::operator<<(std::ostream& os, const lox::Chunk& chunk) {
-  size_t nbytes = chunk.code.size();
+lox::Value lox::Chunk::constant_at(size_t index) const {
+  return constants.at(index);
+}
+
+size_t lox::Chunk::constants_size() const { return constants.size(); }
+
+size_t lox::Chunk::debuginfo_size() const { return debuginfo.size(); }
+
+bool compare_by_offset(const lox::DebugInfo& info, size_t target) {
+  return info.bytecode_offset < target;
+}
+
+size_t lox::Chunk::debuginfo_at(size_t bytecode_offset) const {
+  auto it = std::lower_bound(debuginfo.begin(), debuginfo.end(),
+                             bytecode_offset, compare_by_offset);
+  if (it->bytecode_offset == bytecode_offset) {
+    return it->line;
+  } else if (it == debuginfo.begin()) {
+    throw std::runtime_error(
+        "loxc: debuginfo_at: no debug info for given bytecode offset");
+  } else {
+    --it;
+    return it->line;
+  }
+}
+
+size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
+  size_t nbytes = code.size();
+  if (offset >= nbytes) {
+    throw std::out_of_range("loxc: Chunk::disassemble: offset out of range");
+  }
+  print_offset(os, offset);
+  uint8_t instruction = code[offset];
+
+  switch (static_cast<OpCode>(instruction)) {
+  case OpCode::CONSTANT: {
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "CONSTANT " << constant << "\n";
+    offset += 2;
+    break;
+  }
+  case OpCode::RETURN: {
+    os << "RETURN\n";
+    offset += 1;
+    break;
+  }
+  }
+  return offset;
+}
+
+std::ostream& lox::Chunk::disassemble(std::ostream& os) const {
+  size_t nbytes = size();
   os << "--- Disassembly of Chunk with " << nbytes << " bytes ---" << "\n";
   size_t offset = 0;
   while (offset < nbytes) {
-    print_offset(os, offset);
-    uint8_t instruction = chunk.code[offset];
-
-    switch (static_cast<OpCode>(instruction)) {
-    case OpCode::CONSTANT: {
-      uint8_t constant_index = chunk.code[offset + 1];
-      Value constant = chunk.constants[constant_index];
-      os << "CONSTANT " << constant << "\n";
-      offset += 2;
-      break;
-    }
-    case OpCode::RETURN: {
-      os << "RETURN\n";
-      offset += 1;
-      break;
-    }
-    }
+    offset = disassemble(os, offset);
   }
-
   // We SHOULD have printed all bytes, so this is a sanity check.
   if (offset != nbytes) {
     throw std::runtime_error(
         "loxc: Disassembly error: did not consume all bytes");
   }
+  return os;
+}
+
+std::ostream& lox::operator<<(std::ostream& os, const lox::Chunk& chunk) {
+  chunk.disassemble(os);
   return os;
 }
 

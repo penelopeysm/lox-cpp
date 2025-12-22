@@ -1,16 +1,17 @@
 #include "chunk.hpp"
-#include <iostream>
+#include "vm.hpp"
 
 int main() {
-  std::cout << "Hello, world." << std::endl;
   lox::Chunk chunk;
-
   const size_t line = 1;
-  chunk.write(lox::OpCode::RETURN, line);
-  chunk.push_constant(42.0);
   chunk.write(lox::OpCode::CONSTANT, line);
+  chunk.push_constant(42.0);
   chunk.write(0, line); // index of constant 42.0
+  chunk.write(lox::OpCode::RETURN, line);
 
-  std::cout << "\n\n" << chunk << "\n\n";
+  // std::cout << "\n\n" << chunk << "\n\n";
+
+  lox::VM vm(chunk);
+  vm.run();
   return 0;
 }

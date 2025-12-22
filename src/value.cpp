@@ -5,8 +5,8 @@ namespace {
 struct LoxValuePrinter {
   std::ostream& os;
   void operator()(std::monostate) { os << "nil"; }
-  void operator()(bool b) { os << "bool_" << (b ? "true" : "false"); }
-  void operator()(double d) { os << "number_" << d; }
+  void operator()(bool b) { os << (b ? "true" : "false"); }
+  void operator()(double d) { os << d; }
 };
 } // namespace
 

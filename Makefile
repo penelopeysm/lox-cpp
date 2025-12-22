@@ -12,6 +12,7 @@ CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP -Isrc
 
 # NOTE: The first target is always the default target, i.e., the target that
 # is built when you just run `make` without any arguments.
+APP := loxc
 all: $(APP)
 
 SRCS := $(wildcard src/*.cpp)
@@ -29,7 +30,6 @@ DEPS := $(SRCS:.cpp=.d)
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-APP := loxc
 APP_OBJS := app/main.o
 $(APP): $(OBJS) $(APP_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
