@@ -13,6 +13,11 @@ namespace lox {
 enum class OpCode {
   CONSTANT,
   RETURN,
+  NEGATE,
+  ADD,
+  SUBTRACT,
+  MULTIPLY,
+  DIVIDE,
   // more to come
 };
 

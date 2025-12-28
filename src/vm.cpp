@@ -1,5 +1,6 @@
 #include "vm.hpp"
 #include "chunk.hpp"
+#include "compiler.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -7,6 +8,18 @@
 #define LOX_DEBUG
 
 namespace lox {
+
+lox::InterpretResult interpret(std::string_view source) {
+  Chunk chunk;
+  bool compiled_correctly = compile(source, chunk);
+  if (!compiled_correctly) {
+    return InterpretResult::COMPILE_ERROR;
+  }
+  VM vm(chunk);
+  vm.run();
+  return InterpretResult::OK;
+}
+
 VM::VM(Chunk& chunk) : chunk(chunk), ip(0) { stack.reserve(MAX_STACK_SIZE); }
 
 uint8_t VM::read_byte() { return chunk.at(ip++); }
@@ -42,6 +55,15 @@ lox::Value VM::stack_pop() {
   return stack[stack_ptr];
 }
 
+lox::Value
+VM::stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op) {
+  if (stack_ptr == 0) {
+    throw std::runtime_error("loxc: stack underflow");
+  }
+  stack[stack_ptr - 1] = op(stack[stack_ptr - 1]);
+  return stack[stack_ptr - 1];
+}
+
 std::ostream& VM::stack_dump(std::ostream& out) const {
   if (stack_ptr == 0) {
     out << "          <empty stack>\n";
@@ -53,6 +75,19 @@ std::ostream& VM::stack_dump(std::ostream& out) const {
   }
   out << "\n";
   return out;
+}
+
+VM& VM::handle_binary_op(const std::function<double(double, double)>& op) {
+  lox::Value b = stack_pop();
+  stack_modify_top([&](const lox::Value& a) {
+    if (std::holds_alternative<double>(a) &&
+        std::holds_alternative<double>(b)) {
+      return op(std::get<double>(a), std::get<double>(b));
+    } else {
+      throw std::runtime_error("loxc: operands must be numbers");
+    }
+  });
+  return *this;
 }
 
 InterpretResult VM::run() {
@@ -71,6 +106,32 @@ InterpretResult VM::run() {
     case OpCode::CONSTANT: {
       lox::Value c = read_constant();
       stack_push(c);
+      continue;
+    }
+    case OpCode::NEGATE: {
+      stack_modify_top([](const lox::Value& value) {
+        if (std::holds_alternative<double>(value)) {
+          return -std::get<double>(value);
+        } else {
+          throw std::runtime_error("loxc: operand must be a number");
+        }
+      });
+      continue;
+    }
+    case OpCode::ADD: {
+      handle_binary_op([](double a, double b) { return a + b; });
+      continue;
+    }
+    case OpCode::SUBTRACT: {
+      handle_binary_op([](double a, double b) { return a - b; });
+      continue;
+    }
+    case OpCode::MULTIPLY: {
+      handle_binary_op([](double a, double b) { return a * b; });
+      continue;
+    }
+    case OpCode::DIVIDE: {
+      handle_binary_op([](double a, double b) { return a / b; });
       continue;
     }
     }

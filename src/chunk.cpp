@@ -131,16 +131,33 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     uint8_t constant_index = code[offset + 1];
     Value constant = constants[constant_index];
     os << "CONSTANT " << constant << "\n";
-    offset += 2;
-    break;
+    return offset + 2;
   }
   case OpCode::RETURN: {
     os << "RETURN\n";
-    offset += 1;
-    break;
+    return offset + 1;
+  }
+  case OpCode::NEGATE: {
+    os << "NEGATE\n";
+    return offset + 1;
+  }
+  case OpCode::ADD: {
+    os << "ADD\n";
+    return offset + 1;
+  }
+  case OpCode::SUBTRACT: {
+    os << "SUBTRACT\n";
+    return offset + 1;
+  }
+  case OpCode::MULTIPLY: {
+    os << "MULTIPLY\n";
+    return offset + 1;
+  }
+  case OpCode::DIVIDE: {
+    os << "DIVIDE\n";
+    return offset + 1;
   }
   }
-  return offset;
 }
 
 std::ostream& lox::Chunk::disassemble(std::ostream& os) const {

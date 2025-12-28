@@ -5,6 +5,8 @@
 
 namespace lox {
 
+enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
+
 // NOTE: `using` is similar to `typedef`, but more powerful in C++
 using Value = std::variant<std::monostate, bool, double>;
 
