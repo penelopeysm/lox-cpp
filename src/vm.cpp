@@ -10,14 +10,16 @@
 namespace lox {
 
 lox::InterpretResult interpret(std::string_view source) {
-  Chunk chunk;
-  bool compiled_correctly = compile(source, chunk);
+  // NOTE: this is "structured binding"; compile() returns
+  // std::pair<bool, Chunk>
+  auto [compiled_correctly, chunk] = compile(source);
   if (!compiled_correctly) {
     return InterpretResult::COMPILE_ERROR;
+  } else {
+    VM vm(chunk);
+    vm.run();
+    return InterpretResult::OK;
   }
-  VM vm(chunk);
-  vm.run();
-  return InterpretResult::OK;
 }
 
 VM::VM(Chunk& chunk) : chunk(chunk), ip(0) { stack.reserve(MAX_STACK_SIZE); }

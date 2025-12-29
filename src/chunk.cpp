@@ -82,14 +82,14 @@ lox::Chunk& lox::Chunk::reset() {
   return *this;
 }
 
-lox::Chunk& lox::Chunk::push_constant(lox::Value value) {
+size_t lox::Chunk::push_constant(lox::Value value) {
   try {
     constants.push_back(value);
   } catch (const std::bad_alloc&) {
     throw std::runtime_error(
         "loxc: Out of memory while adding constant to Chunk");
   }
-  return *this;
+  return constants.size() - 1;
 }
 
 lox::Value lox::Chunk::constant_at(size_t index) const {

@@ -36,7 +36,8 @@ public:
   Chunk& write(OpCode opcode, size_t line);
   Chunk& write(uint8_t byte, size_t line);
   Chunk& reset();
-  Chunk& push_constant(lox::Value value);
+  // Returns the index of the constant just added
+  size_t push_constant(lox::Value value);
   lox::Value constant_at(size_t index) const;
   size_t constants_size() const;
   size_t debuginfo_size() const;

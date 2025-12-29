@@ -52,6 +52,7 @@ enum class TokenType {
   ERROR,
   _EOF,
 };
+std::string to_string(TokenType type);
 
 class Token {
 public:
