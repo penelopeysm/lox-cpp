@@ -5,6 +5,8 @@ make
 ./loxc
 ```
 
+by default it builds a debug version, use `make BUILD=release` to disable that
+
 ## generating `compile_commands.json`
 
 this is needed to make clang-based tools (like clangd) work properly.
