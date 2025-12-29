@@ -5,8 +5,6 @@
 #include <iostream>
 #include <stdexcept>
 
-#define LOX_DEBUG
-
 namespace lox {
 
 lox::InterpretResult interpret(std::string_view source) {
