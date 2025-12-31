@@ -6,6 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -27,28 +28,16 @@ Precedence next_precedence(Precedence in) {
 using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
-std::pair<bool, Chunk> compile(std::string_view source) {
-  // Instantiates a scanner that holds the source code; but doesn't actually
-  // perform any scanning. Scanning will happen on demand!
-  std::unique_ptr<Scanner> scanner = std::make_unique<Scanner>(source);
-  Chunk chunk;
-  // Scanner scanner(source);
-  // Then instantiate a parser that holds the scanner.
-  Parser parser(std::move(scanner), chunk);
-  parser.parse();
-  return std::pair(true, parser.get_chunk());
-}
-
 Parser::Parser(std::unique_ptr<Scanner> scanner, Chunk chunk)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
-      previous(SENTINEL_EOF), had_error(false), chunk(chunk) {}
+      previous(SENTINEL_EOF), errmsg(std::nullopt), chunk(chunk) {}
 
 void Parser::advance() {
   previous = current;
   current = scanner->scan_token();
   // std::cout << to_string(current) << "\n";
   if (current.type == TokenType::ERROR) {
-    error(current.lexeme);
+    error(current.lexeme, current.line);
   }
 }
 
@@ -59,20 +48,28 @@ bool Parser::consume_or_error(TokenType type, std::string_view error_message) {
     advance();
     return true;
   } else {
-    error(error_message);
+    error(error_message, current.line);
     return false;
   }
 }
 
-void Parser::error(std::string_view message) {
-  had_error = true;
-  std::cerr << "Error at line " << current.line << ": " << message << "\n";
+void Parser::error(std::string_view message, size_t line) {
+  errmsg = std::pair(std::string(message), line);
+}
+
+void Parser::report_error() {
+  if (errmsg.has_value()) {
+    std::cerr << "[line " << errmsg->second << "] Error: " << errmsg->first
+              << "\n";
+  } else {
+    throw std::runtime_error("unreachable: no error to report");
+  }
 }
 
 void Parser::emit_constant(lox::Value value) {
   size_t constant_index = chunk.push_constant(value);
   if (constant_index > UINT8_MAX) {
-    error("Too many constants in one chunk.");
+    error("Too many constants in one chunk.", previous.line);
     return;
   }
   emit(lox::OpCode::CONSTANT);
@@ -89,7 +86,7 @@ void Parser::parse_precedence(Precedence precedence) {
   advance();
   Rule prefix_rule = get_rule(previous.type);
   if (prefix_rule.prefix == nullptr) {
-    error("expected expression");
+    error("expected expression", previous.line);
     return;
   }
   // Call the prefix parse function.
@@ -135,6 +132,28 @@ void Parser::number() {
   emit_constant(value);
 }
 
+void Parser::literal() {
+  switch (previous.type) {
+  case TokenType::FALSE:
+    emit_constant(false);
+    break;
+  case TokenType::NIL:
+    emit_constant(std::monostate());
+    break;
+  case TokenType::TRUE:
+    emit_constant(true);
+    break;
+  default:
+    throw std::runtime_error("unreachable: unknown literal type " +
+                             to_string(previous.type));
+  }
+}
+
+void Parser::string() {
+  auto obj_str = std::make_shared<lox::ObjString>(previous.lexeme);
+  emit_constant(obj_str);
+}
+
 void Parser::grouping() {
   expression();
   consume_or_error(TokenType::RIGHT_PAREN, "expected ')'");
@@ -150,8 +169,12 @@ void Parser::unary() {
   case TokenType::MINUS:
     emit(lox::OpCode::NEGATE);
     break;
+  case TokenType::BANG:
+    emit(lox::OpCode::NOT);
+    break;
   default:
-    throw std::runtime_error("loxc: unknown unary operator");
+    throw std::runtime_error("loxc: unknown unary operator " +
+                             to_string(prev_type));
   }
 }
 
@@ -174,6 +197,27 @@ void Parser::binary() {
     break;
   case TokenType::SLASH:
     emit(lox::OpCode::DIVIDE);
+    break;
+  case TokenType::EQUAL_EQUAL:
+    emit(lox::OpCode::EQUAL);
+    break;
+  case TokenType::BANG_EQUAL:
+    emit(lox::OpCode::EQUAL);
+    emit(lox::OpCode::NOT);
+    break;
+  case TokenType::GREATER:
+    emit(lox::OpCode::GREATER);
+    break;
+  case TokenType::GREATER_EQUAL:
+    emit(lox::OpCode::LESS);
+    emit(lox::OpCode::NOT);
+    break;
+  case TokenType::LESS:
+    emit(lox::OpCode::LESS);
+    break;
+  case TokenType::LESS_EQUAL:
+    emit(lox::OpCode::GREATER);
+    emit(lox::OpCode::NOT);
     break;
   default:
     throw std::runtime_error("unreachable: unknown binary operator " +

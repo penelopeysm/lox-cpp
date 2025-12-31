@@ -1,27 +1,20 @@
-#include "chunk.hpp"
 #include "vm.hpp"
 #include <fstream>
 #include <iostream>
 #include <string>
 
 void runRepl() {
-  lox::Chunk chunk;
-
-  // simulate `return 2 + 3;`
-  const size_t line = 1;
-  chunk.write(lox::OpCode::CONSTANT, line);
-  chunk.push_constant(2.0);
-  chunk.write(0, line); // index of constant 2.0
-  chunk.write(lox::OpCode::CONSTANT, line);
-  chunk.push_constant(3.0);
-  chunk.write(1, line); // index of constant 3.0
-  chunk.write(lox::OpCode::ADD, line);
-  chunk.write(lox::OpCode::RETURN, line);
-
-  // std::cout << "\n\n" << chunk << "\n\n";
-  lox::VM vm(chunk);
-  vm.run();
-  exit(0);
+  std::string line;
+  while (true) {
+    std::cout << "> ";
+    if (!std::getline(std::cin, line)) {
+      break;
+    }
+    lox::InterpretResult result = lox::interpret(line);
+    if (result == lox::InterpretResult::COMPILE_ERROR) {
+      continue;
+    }
+  }
 }
 
 void runFile(const char* path) {

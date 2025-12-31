@@ -29,14 +29,17 @@ private:
   // pointer.
   lox::Value read_constant();
 
-  VM& handle_binary_op(const std::function<double(double, double)>& op);
+  void error(const std::string& message);
+
+  VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
 
   // Move the stack pointer back to the base
   VM& stack_reset();
   VM& stack_push(const lox::Value& value);
   lox::Value stack_pop();
   // Apply `op` to the top value on the stack, replacing it with the result
-  lox::Value stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op);
+  lox::Value
+  stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op);
 };
 
 } // namespace lox

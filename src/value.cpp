@@ -7,10 +7,78 @@ struct LoxValuePrinter {
   void operator()(std::monostate) { os << "nil"; }
   void operator()(bool b) { os << (b ? "true" : "false"); }
   void operator()(double d) { os << d; }
+  void operator()(std::shared_ptr<lox::Obj> s) { os << s->to_repr(); }
 };
 } // namespace
 
-std::ostream& lox::operator<<(std::ostream& os, const lox::Value& value) {
+namespace lox {
+
+std::ostream& operator<<(std::ostream& os, const Value& value) {
   std::visit(LoxValuePrinter{os}, value);
   return os;
 }
+
+bool ObjString::is_equal(const std::shared_ptr<Obj>& other) {
+  auto other_str = std::dynamic_pointer_cast<ObjString>(other);
+  if (other_str == nullptr) {
+    return false;
+  }
+  return value == other_str->value;
+}
+Value ObjString::add(const std::shared_ptr<Obj>& other) {
+  auto other_str = std::dynamic_pointer_cast<ObjString>(other);
+  if (other_str == nullptr) {
+    throw std::runtime_error(
+        "loxc: add: cannot concatenate non-string to string");
+  }
+  return std::make_shared<ObjString>(value + other_str->value);
+}
+
+bool is_truthy(const Value& value) {
+  if (std::holds_alternative<std::monostate>(value)) {
+    return false;
+  } else if (std::holds_alternative<bool>(value)) {
+    return std::get<bool>(value);
+  } else if (std::holds_alternative<double>(value)) {
+    // all Lox numbers are truthy (even 0)
+    return true;
+  } else if (std::holds_alternative<std::shared_ptr<Obj>>(value)) {
+    // everything else is also truthy
+    return true;
+  } else {
+    throw std::runtime_error("loxc: is_truthy: unknown value type");
+  }
+}
+
+bool is_equal(const Value& a, const Value& b) {
+  if (a.index() != b.index()) {
+    return false;
+  }
+  if (std::holds_alternative<std::monostate>(a)) {
+    return true;
+  } else if (std::holds_alternative<bool>(a)) {
+    return std::get<bool>(a) == std::get<bool>(b);
+  } else if (std::holds_alternative<double>(a)) {
+    return std::get<double>(a) == std::get<double>(b);
+  } else if (std::holds_alternative<std::shared_ptr<Obj>>(a)) {
+    auto aptr = std::get<std::shared_ptr<Obj>>(a);
+    auto bptr = std::get<std::shared_ptr<Obj>>(b);
+    return aptr->is_equal(bptr);
+  } else {
+    throw std::runtime_error("unreachable in is_equal: unknown value type");
+  }
+}
+
+Value add(const Value& a, const Value& b) {
+  if (std::holds_alternative<double>(a) && std::holds_alternative<double>(b)) {
+    return std::get<double>(a) + std::get<double>(b);
+  } else if (std::holds_alternative<std::shared_ptr<Obj>>(a) &&
+             std::holds_alternative<std::shared_ptr<Obj>>(b)) {
+    auto aptr = std::get<std::shared_ptr<Obj>>(a);
+    auto bptr = std::get<std::shared_ptr<Obj>>(b);
+    return aptr->add(bptr);
+  }
+  return false;
+}
+
+} // namespace lox

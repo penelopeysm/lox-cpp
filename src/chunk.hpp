@@ -1,9 +1,10 @@
 #pragma once
 
 #include "value.hpp"
+#include <cstdlib>
 #include <cstdint>
-#include <vector>
 #include <ostream>
+#include <vector>
 
 namespace lox {
 
@@ -18,6 +19,10 @@ enum class OpCode {
   SUBTRACT,
   MULTIPLY,
   DIVIDE,
+  NOT,
+  EQUAL,
+  GREATER,
+  LESS,
   // more to come
 };
 
@@ -45,7 +50,8 @@ public:
 
   std::ostream& hex_dump(std::ostream& os) const;
   std::ostream& disassemble(std::ostream& os) const;
-  // Disassemble a single instruction at the given offset, and return the new offset.
+  // Disassemble a single instruction at the given offset, and return the new
+  // offset.
   size_t disassemble(std::ostream& os, size_t offset) const;
 
 private:

@@ -1,8 +1,11 @@
 #include "chunk.hpp"
 #include "value.hpp"
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <format>
 #include <iostream>
+#include <stdexcept>
 
 // NOTE: This is an 'anonymous namespace': everything defined inside here can
 // be used in the same file without qualification, but is not visible outside
@@ -121,7 +124,9 @@ size_t lox::Chunk::debuginfo_at(size_t bytecode_offset) const {
 size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   size_t nbytes = code.size();
   if (offset >= nbytes) {
-    throw std::out_of_range("loxc: Chunk::disassemble: offset out of range");
+    throw std::out_of_range("loxc: Chunk::disassemble: offset " +
+                            std::to_string(offset) + " out of range (size " +
+                            std::to_string(nbytes) + ")");
   }
   print_offset(os, offset);
   uint8_t instruction = code[offset];
@@ -155,6 +160,22 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   }
   case OpCode::DIVIDE: {
     os << "DIVIDE\n";
+    return offset + 1;
+  }
+  case OpCode::NOT: {
+    os << "NOT\n";
+    return offset + 1;
+  }
+  case OpCode::EQUAL: {
+    os << "EQUAL\n";
+    return offset + 1;
+  }
+  case OpCode::GREATER: {
+    os << "GREATER\n";
+    return offset + 1;
+  }
+  case OpCode::LESS: {
+    os << "LESS\n";
     return offset + 1;
   }
   }

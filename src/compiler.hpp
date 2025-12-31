@@ -2,11 +2,8 @@
 #include "scanner.hpp"
 #include <memory>
 #include <string_view>
-#include <utility>
 
 namespace lox {
-
-std::pair<bool, Chunk> compile(std::string_view source);
 
 enum class Precedence {
   NONE,
@@ -28,12 +25,14 @@ public:
   Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk);
   void parse();
   Chunk get_chunk() const { return chunk; }
+  bool error_occurred() const { return errmsg.has_value(); }
+  void report_error();
 
 private:
   std::unique_ptr<scanner::Scanner> scanner;
   scanner::Token current;
   scanner::Token previous;
-  bool had_error;
+  std::optional<std::pair<std::string, size_t>> errmsg;
   Chunk chunk;
 
   // Interact with scanner
@@ -41,7 +40,7 @@ private:
   bool consume_or_error(scanner::TokenType type,
                         std::string_view error_message);
   bool is_at_end() const { return scanner->is_at_end(); }
-  void error(std::string_view message);
+  void error(std::string_view message, size_t line);
 
   // Parsing methods
   void parse_precedence(Precedence precedence);
@@ -50,6 +49,9 @@ private:
   void grouping();
   void unary();
   void binary();
+  void string();
+  // Not technically all literals... this handles true, false, and nil.
+  void literal();
 
   // Interact with chunk
   void emit(uint8_t byte) { chunk.write(byte, previous.line); }
@@ -89,25 +91,25 @@ private:
     case TokenType::STAR:
       return Rule{NULL, &Parser::binary, Precedence::FACTOR};
     case TokenType::BANG:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::unary, NULL, Precedence::NONE};
     case TokenType::BANG_EQUAL:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::binary, Precedence::EQUALITY};
     case TokenType::EQUAL:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::EQUAL_EQUAL:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::binary, Precedence::EQUALITY};
     case TokenType::GREATER:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::binary, Precedence::COMPARISON};
     case TokenType::GREATER_EQUAL:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::binary, Precedence::COMPARISON};
     case TokenType::LESS:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::binary, Precedence::COMPARISON};
     case TokenType::LESS_EQUAL:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::binary, Precedence::COMPARISON};
     case TokenType::IDENTIFIER:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::STRING:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::string, NULL, Precedence::NONE};
     case TokenType::NUMBER:
       return Rule{&Parser::number, NULL, Precedence::NONE};
     case TokenType::AND:
@@ -117,7 +119,7 @@ private:
     case TokenType::ELSE:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::FALSE:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::literal, NULL, Precedence::NONE};
     case TokenType::FOR:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::FUN:
@@ -125,7 +127,7 @@ private:
     case TokenType::IF:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::NIL:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::literal, NULL, Precedence::NONE};
     case TokenType::OR:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::PRINT:
@@ -137,7 +139,7 @@ private:
     case TokenType::THIS:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::TRUE:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::literal, NULL, Precedence::NONE};
     case TokenType::VAR:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::WHILE:
