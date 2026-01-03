@@ -9,8 +9,9 @@ namespace lox {
 
 enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
 
-// Forward declaration
+// Forward declarations
 class Obj;
+class StringMap; // Actually in stringmap.hpp
 
 // NOTE: `using` is similar to `typedef`, but more powerful in C++
 using Value = std::variant<std::monostate, bool, double, std::shared_ptr<Obj>>;
@@ -33,8 +34,7 @@ public:
   // NOTE: the (= 0) makes this a 'pure virtual' function, meaning that derived
   // classes must implement this function.
   virtual std::string to_repr() const = 0;
-  virtual bool is_equal(const std::shared_ptr<Obj>& other) = 0;
-  virtual Value add(const std::shared_ptr<Obj>& other) = 0;
+  virtual Value add(const std::shared_ptr<Obj>& other, StringMap& string_map) = 0;
 };
 
 class ObjString : public Obj {
@@ -48,13 +48,12 @@ public:
   }
 #endif
   std::string to_repr() const override { return "\"" + value + "\""; }
-  bool is_equal(const std::shared_ptr<Obj>& other) override;
-  Value add(const std::shared_ptr<Obj>& other) override;
+  Value add(const std::shared_ptr<Obj>& other, StringMap& string_map) override;
 };
 
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);
-Value add(const Value& a, const Value& b);
+Value add(const Value& a, const Value& b, StringMap& string_map);
 
 // NOTE: Operators like these should (best) be declared in the same namespace
 // as the type they operate on. The compiler will be able to find them via

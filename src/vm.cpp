@@ -1,6 +1,7 @@
 #include "vm.hpp"
 #include "chunk.hpp"
 #include "compiler.hpp"
+#include "stringmap.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -13,7 +14,9 @@ lox::InterpretResult interpret(std::string_view source) {
   std::unique_ptr<scanner::Scanner> scanner =
       std::make_unique<scanner::Scanner>(source);
   Chunk chunk;
-  Parser parser(std::move(scanner), chunk);
+  // Create a map for string interning
+  StringMap string_map;
+  Parser parser(std::move(scanner), chunk, string_map);
   parser.parse();
 
   if (parser.error_occurred()) {
@@ -23,7 +26,7 @@ lox::InterpretResult interpret(std::string_view source) {
   } else {
     // TODO this creates a copy
     Chunk compiledChunk = parser.get_chunk();
-    VM vm(compiledChunk);
+    VM vm(compiledChunk, string_map);
     try {
       vm.run();
     } catch (const std::runtime_error& e) {
@@ -34,7 +37,10 @@ lox::InterpretResult interpret(std::string_view source) {
   }
 }
 
-VM::VM(Chunk& chunk) : chunk(chunk), ip(0) { stack.reserve(MAX_STACK_SIZE); }
+VM::VM(Chunk& chunk, StringMap& interned_strings)
+    : chunk(chunk), ip(0), interned_strings(interned_strings) {
+  stack.reserve(MAX_STACK_SIZE);
+}
 
 uint8_t VM::read_byte() { return chunk.at(ip++); }
 
@@ -143,7 +149,7 @@ InterpretResult VM::run() {
     case OpCode::ADD: {
       lox::Value b = stack_pop();
       lox::Value a = stack_pop();
-      stack_push(lox::add(a, b));
+      stack_push(lox::add(a, b, interned_strings));
       continue;
     }
     case OpCode::SUBTRACT: {

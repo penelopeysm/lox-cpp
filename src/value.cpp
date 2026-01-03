@@ -1,4 +1,5 @@
 #include "value.hpp"
+#include "stringmap.hpp"
 #include <iostream>
 
 namespace {
@@ -18,20 +19,15 @@ std::ostream& operator<<(std::ostream& os, const Value& value) {
   return os;
 }
 
-bool ObjString::is_equal(const std::shared_ptr<Obj>& other) {
-  auto other_str = std::dynamic_pointer_cast<ObjString>(other);
-  if (other_str == nullptr) {
-    return false;
-  }
-  return value == other_str->value;
-}
-Value ObjString::add(const std::shared_ptr<Obj>& other) {
+Value ObjString::add(const std::shared_ptr<Obj>& other, StringMap& string_map) {
   auto other_str = std::dynamic_pointer_cast<ObjString>(other);
   if (other_str == nullptr) {
     throw std::runtime_error(
         "loxc: add: cannot concatenate non-string to string");
   }
-  return std::make_shared<ObjString>(value + other_str->value);
+  // no choice here, we have to concatenate the strings which means allocating
+  std::string new_str = value + other_str->value;
+  return string_map.get_ptr(new_str);
 }
 
 bool is_truthy(const Value& value) {
@@ -63,20 +59,21 @@ bool is_equal(const Value& a, const Value& b) {
   } else if (std::holds_alternative<std::shared_ptr<Obj>>(a)) {
     auto aptr = std::get<std::shared_ptr<Obj>>(a);
     auto bptr = std::get<std::shared_ptr<Obj>>(b);
-    return aptr->is_equal(bptr);
+    // Because all strings are interned, pointer equality is sufficient
+    return aptr == bptr;
   } else {
     throw std::runtime_error("unreachable in is_equal: unknown value type");
   }
 }
 
-Value add(const Value& a, const Value& b) {
+Value add(const Value& a, const Value& b, StringMap& string_map) {
   if (std::holds_alternative<double>(a) && std::holds_alternative<double>(b)) {
     return std::get<double>(a) + std::get<double>(b);
   } else if (std::holds_alternative<std::shared_ptr<Obj>>(a) &&
              std::holds_alternative<std::shared_ptr<Obj>>(b)) {
     auto aptr = std::get<std::shared_ptr<Obj>>(a);
     auto bptr = std::get<std::shared_ptr<Obj>>(b);
-    return aptr->add(bptr);
+    return aptr->add(bptr, string_map);
   }
   return false;
 }

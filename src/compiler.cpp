@@ -28,9 +28,11 @@ Precedence next_precedence(Precedence in) {
 using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
-Parser::Parser(std::unique_ptr<Scanner> scanner, Chunk chunk)
+Parser::Parser(std::unique_ptr<Scanner> scanner, Chunk chunk,
+               StringMap& string_map)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
-      previous(SENTINEL_EOF), errmsg(std::nullopt), chunk(chunk) {}
+      previous(SENTINEL_EOF), errmsg(std::nullopt), string_map(string_map),
+      chunk(chunk) {}
 
 void Parser::advance() {
   previous = current;
@@ -150,7 +152,7 @@ void Parser::literal() {
 }
 
 void Parser::string() {
-  auto obj_str = std::make_shared<lox::ObjString>(previous.lexeme);
+  std::shared_ptr<ObjString> obj_str = string_map.get_ptr(previous.lexeme);
   emit_constant(obj_str);
 }
 

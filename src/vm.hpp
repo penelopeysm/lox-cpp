@@ -2,6 +2,9 @@
 
 #include "chunk.hpp"
 #include "value.hpp"
+#include <functional>
+#include <ostream>
+#include <string_view>
 #include <vector>
 
 namespace lox {
@@ -11,7 +14,7 @@ InterpretResult interpret(std::string_view source);
 
 class VM {
 public:
-  VM(Chunk& chunk);
+  VM(Chunk& chunk, StringMap& interned_strings);
   InterpretResult run();
   std::ostream& stack_dump(std::ostream& out) const;
 
@@ -22,6 +25,7 @@ private:
   // not provide random access (you can only access the top element).
   std::vector<lox::Value> stack;
   size_t stack_ptr = 0;
+  StringMap& interned_strings;
 
   // Read a byte and advance the instruction pointer.
   uint8_t read_byte();

@@ -1,5 +1,6 @@
 #include "chunk.hpp"
 #include "scanner.hpp"
+#include "stringmap.hpp"
 #include <memory>
 #include <string_view>
 
@@ -22,7 +23,7 @@ Precedence next_precedence(Precedence in);
 
 class Parser {
 public:
-  Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk);
+  Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk, StringMap& string_map);
   void parse();
   Chunk get_chunk() const { return chunk; }
   bool error_occurred() const { return errmsg.has_value(); }
@@ -33,6 +34,7 @@ private:
   scanner::Token current;
   scanner::Token previous;
   std::optional<std::pair<std::string, size_t>> errmsg;
+  StringMap& string_map;
   Chunk chunk;
 
   // Interact with scanner
