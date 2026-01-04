@@ -27,6 +27,9 @@ endif
 APP := loxc
 all: $(APP)
 
+try: $(APP)
+	./$(APP) test.lox
+
 SRCS := $(wildcard src/*.cpp)
 OBJS := $(SRCS:.cpp=.o)
 DEPS := $(SRCS:.cpp=.d)
