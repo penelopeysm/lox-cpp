@@ -95,10 +95,7 @@ size_t Parser::emit_constant(lox::Value value) {
 void Parser::parse() {
   advance(); // Load the first token into `current`.
   while (current.type != TokenType::_EOF && !has_error()) {
-    declaration();
-  }
-  if (has_error()) {
-    report_error();
+    declaration(true);
   }
 }
 
@@ -109,10 +106,12 @@ void Parser::parse_precedence(Precedence precedence) {
     error("expected expression", previous.line);
     return;
   }
+
+  bool can_assign = precedence <= Precedence::ASSIGNMENT;
   // Call the prefix parse function.
   // NOTE: std::invoke is a nicer way of calling member function pointers.
-  // The alternative is: (this->*prefix_rule.prefix)();
-  std::invoke(prefix_rule.prefix, this);
+  // The alternative is: (this->*prefix_rule.prefix)(can_assign);
+  std::invoke(prefix_rule.prefix, this, can_assign);
 
   // OK, now we parsed a prefix. We need to check if it could be an operand to
   // an infix operator.
@@ -130,7 +129,7 @@ void Parser::parse_precedence(Precedence precedence) {
     advance();
     ParserMemFn infix_rule = next_rule.infix;
     if (infix_rule != nullptr) {
-      std::invoke(infix_rule, this);
+      std::invoke(infix_rule, this, can_assign);
     } else {
       // This really shouldn't happen, because if the precedence is not NONE,
       // then there must be an infix rule. In other words, if it's not a valid
@@ -145,21 +144,21 @@ void Parser::parse_precedence(Precedence precedence) {
   }
 }
 
-void Parser::declaration() {
+void Parser::declaration(bool can_assign) {
   if (consume_if(TokenType::VAR)) {
-    var_declaration();
+    var_declaration(can_assign);
   } else {
-    statement();
+    statement(can_assign);
   }
 }
 
-void Parser::var_declaration() {
+void Parser::var_declaration(bool can_assign) {
   // identifier
   consume_or_error(TokenType::IDENTIFIER, "expected variable name");
   std::string_view var_name = previous.lexeme;
   // optional initializer
   if (consume_if(TokenType::EQUAL)) {
-    expression();
+    expression(can_assign);
   } else {
     // if no initializer provided, initialize to nil
     emit_constant(std::monostate());
@@ -179,18 +178,21 @@ void Parser::define_variable(std::string_view name) {
   emit(static_cast<uint8_t>(constant_index));
 }
 
-void Parser::variable() {
+void Parser::variable(bool can_assign) {
   // We've already consumed the identifier token, so it's in `previous`.
-  named_variable(previous.lexeme);
+  named_variable(previous.lexeme, can_assign);
 }
 
-void Parser::named_variable(std::string_view lexeme) {
+void Parser::named_variable(std::string_view lexeme, bool can_assign) {
   std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
   size_t constant_index = make_constant(var_name_str);
   // It might be an assignment though...
   if (consume_if(TokenType::EQUAL)) {
+    if (!can_assign) {
+      error("invalid assignment target", previous.line);
+    }
     // It's an assignment; evaluate the RHS expression first.
-    expression();
+    expression(can_assign);
     emit(lox::OpCode::SET_GLOBAL);
   } else {
     // Just variable access.
@@ -200,35 +202,35 @@ void Parser::named_variable(std::string_view lexeme) {
   return;
 }
 
-void Parser::statement() {
+void Parser::statement(bool can_assign) {
   if (consume_if(TokenType::PRINT)) {
-    print_statement();
+    print_statement(can_assign);
   } else {
-    expression_statement();
+    expression_statement(can_assign);
   }
 }
 
-void Parser::print_statement() {
-  expression();
+void Parser::print_statement(bool can_assign) {
+  expression(can_assign);
   consume_or_error(TokenType::SEMICOLON, "expected ';' after value");
   emit(lox::OpCode::PRINT);
 }
 
-void Parser::expression_statement() {
-  expression();
+void Parser::expression_statement(bool can_assign) {
+  expression(can_assign);
   consume_or_error(TokenType::SEMICOLON, "expected ';' after expression");
   // Discard the value left on the stack after evaluating the expression.
   emit(lox::OpCode::POP);
 }
 
-void Parser::expression() { parse_precedence(Precedence::ASSIGNMENT); }
+void Parser::expression(bool _) { parse_precedence(Precedence::ASSIGNMENT); }
 
-void Parser::number() {
+void Parser::number(bool _) {
   double value = std::stod(std::string(previous.lexeme));
   emit_constant(value);
 }
 
-void Parser::literal() {
+void Parser::literal(bool _) {
   switch (previous.type) {
   case TokenType::FALSE:
     emit_constant(false);
@@ -245,17 +247,17 @@ void Parser::literal() {
   }
 }
 
-void Parser::string() {
+void Parser::string(bool _) {
   std::shared_ptr<ObjString> obj_str = string_map.get_ptr(previous.lexeme);
   emit_constant(obj_str);
 }
 
-void Parser::grouping() {
-  expression();
+void Parser::grouping(bool can_assign) {
+  expression(can_assign);
   consume_or_error(TokenType::RIGHT_PAREN, "expected ')'");
 }
 
-void Parser::unary() {
+void Parser::unary(bool _) {
   // We've already consumed the operator.
   TokenType prev_type = previous.type;
   // Operand.
@@ -274,7 +276,7 @@ void Parser::unary() {
   }
 }
 
-void Parser::binary() {
+void Parser::binary(bool _) {
   TokenType prev_type = previous.type;
   // Get the precedence of the operator we just consumed.
   Rule rule = get_rule(prev_type);

@@ -49,22 +49,21 @@ private:
 
   // Parsing methods
   void parse_precedence(Precedence precedence);
-  void declaration();
-  void var_declaration();
+  void declaration(bool can_assign);
+  void var_declaration(bool can_assign);
+  void statement(bool can_assign);
+  void print_statement(bool can_assign);
+  void expression_statement(bool can_assign);
+  void expression(bool can_assign);
+  void number(bool can_assign);
+  void grouping(bool can_assign);
+  void unary(bool can_assign);
+  void binary(bool can_assign);
+  void string(bool can_assign);
+  void variable(bool can_assign);
+  void literal(bool can_assign);
   void define_variable(std::string_view name);
-  void statement();
-  void print_statement();
-  void expression_statement();
-  void expression();
-  void number();
-  void grouping();
-  void unary();
-  void binary();
-  void string();
-  void variable();
-  void named_variable(std::string_view lexeme);
-  // Not technically all literals... this handles true, false, and nil.
-  void literal();
+  void named_variable(std::string_view lexeme, bool can_assign);
 
   // Interact with chunk
   void emit(uint8_t byte) { chunk.write(byte, previous.line); }
@@ -76,7 +75,7 @@ private:
   // instruction. Returns the index of the constant just added.
   size_t emit_constant(lox::Value value);
 
-  using ParserMemFn = void (Parser::*)();
+  using ParserMemFn = void (Parser::*)(bool can_assign);
   struct Rule {
     ParserMemFn prefix;
     ParserMemFn infix;
