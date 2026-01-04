@@ -3,6 +3,8 @@
 #include "stringmap.hpp"
 #include <memory>
 #include <string_view>
+#include <optional>
+#include <stdexcept>
 
 namespace lox {
 
