@@ -23,7 +23,8 @@ Precedence next_precedence(Precedence in);
 
 class Parser {
 public:
-  Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk, StringMap& string_map);
+  Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk,
+         StringMap& string_map);
   void parse();
   Chunk get_chunk() const { return chunk; }
   bool error_occurred() const { return errmsg.has_value(); }
@@ -41,24 +42,39 @@ private:
   void advance();
   bool consume_or_error(scanner::TokenType type,
                         std::string_view error_message);
+  bool consume_if(scanner::TokenType type);
   bool is_at_end() const { return scanner->is_at_end(); }
   void error(std::string_view message, size_t line);
+  bool has_error() const { return errmsg.has_value(); }
 
   // Parsing methods
   void parse_precedence(Precedence precedence);
+  void declaration();
+  void var_declaration();
+  void define_variable(std::string_view name);
+  void statement();
+  void print_statement();
+  void expression_statement();
   void expression();
   void number();
   void grouping();
   void unary();
   void binary();
   void string();
+  void variable();
+  void named_variable(std::string_view lexeme);
   // Not technically all literals... this handles true, false, and nil.
   void literal();
 
   // Interact with chunk
   void emit(uint8_t byte) { chunk.write(byte, previous.line); }
   void emit(lox::OpCode opcode) { emit(static_cast<uint8_t>(opcode)); }
-  void emit_constant(lox::Value value);
+  // Pushes to the constant table and returns the index of the constant just
+  // added.
+  size_t make_constant(lox::Value value);
+  // Pushes to the constant table and *additionally* emits the CONSTANT
+  // instruction. Returns the index of the constant just added.
+  size_t emit_constant(lox::Value value);
 
   using ParserMemFn = void (Parser::*)();
   struct Rule {
@@ -109,7 +125,7 @@ private:
     case TokenType::LESS_EQUAL:
       return Rule{NULL, &Parser::binary, Precedence::COMPARISON};
     case TokenType::IDENTIFIER:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::variable, NULL, Precedence::NONE};
     case TokenType::STRING:
       return Rule{&Parser::string, NULL, Precedence::NONE};
     case TokenType::NUMBER:

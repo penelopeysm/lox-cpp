@@ -55,6 +55,15 @@ bool Parser::consume_or_error(TokenType type, std::string_view error_message) {
   }
 }
 
+bool Parser::consume_if(TokenType type) {
+  if (current.type == type) {
+    advance();
+    return true;
+  } else {
+    return false;
+  }
+}
+
 void Parser::error(std::string_view message, size_t line) {
   errmsg = std::pair(std::string(message), line);
 }
@@ -68,20 +77,29 @@ void Parser::report_error() {
   }
 }
 
-void Parser::emit_constant(lox::Value value) {
+size_t Parser::make_constant(lox::Value value) {
   size_t constant_index = chunk.push_constant(value);
   if (constant_index > UINT8_MAX) {
     error("Too many constants in one chunk.", previous.line);
-    return;
   }
+  return constant_index;
+}
+
+size_t Parser::emit_constant(lox::Value value) {
+  size_t constant_index = make_constant(value);
   emit(lox::OpCode::CONSTANT);
   emit(static_cast<uint8_t>(constant_index));
+  return constant_index;
 }
 
 void Parser::parse() {
   advance(); // Load the first token into `current`.
-  expression();
-  emit(lox::OpCode::RETURN);
+  while (current.type != TokenType::_EOF && !has_error()) {
+    declaration();
+  }
+  if (has_error()) {
+    report_error();
+  }
 }
 
 void Parser::parse_precedence(Precedence precedence) {
@@ -125,6 +143,82 @@ void Parser::parse_precedence(Precedence precedence) {
     }
     next_rule = get_rule(current.type);
   }
+}
+
+void Parser::declaration() {
+  if (consume_if(TokenType::VAR)) {
+    var_declaration();
+  } else {
+    statement();
+  }
+}
+
+void Parser::var_declaration() {
+  // identifier
+  consume_or_error(TokenType::IDENTIFIER, "expected variable name");
+  std::string_view var_name = previous.lexeme;
+  // optional initializer
+  if (consume_if(TokenType::EQUAL)) {
+    expression();
+  } else {
+    // if no initializer provided, initialize to nil
+    emit_constant(std::monostate());
+  }
+  consume_or_error(TokenType::SEMICOLON,
+                   "expected ';' after variable declaration");
+  define_variable(var_name);
+}
+
+void Parser::define_variable(std::string_view name) {
+  std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(name);
+  // NOTE: we use make_constant here (not emit_constant) because we don't want
+  // to emit a CONSTANT instruction right now. If we did so then the VM would
+  // interpret it as a string literal.
+  size_t constant_index = make_constant(var_name_str);
+  emit(lox::OpCode::DEFINE_GLOBAL);
+  emit(static_cast<uint8_t>(constant_index));
+}
+
+void Parser::variable() {
+  // We've already consumed the identifier token, so it's in `previous`.
+  named_variable(previous.lexeme);
+}
+
+void Parser::named_variable(std::string_view lexeme) {
+  std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
+  size_t constant_index = make_constant(var_name_str);
+  // It might be an assignment though...
+  if (consume_if(TokenType::EQUAL)) {
+    // It's an assignment; evaluate the RHS expression first.
+    expression();
+    emit(lox::OpCode::SET_GLOBAL);
+  } else {
+    // Just variable access.
+    emit(lox::OpCode::GET_GLOBAL);
+  }
+  emit(static_cast<uint8_t>(constant_index));
+  return;
+}
+
+void Parser::statement() {
+  if (consume_if(TokenType::PRINT)) {
+    print_statement();
+  } else {
+    expression_statement();
+  }
+}
+
+void Parser::print_statement() {
+  expression();
+  consume_or_error(TokenType::SEMICOLON, "expected ';' after value");
+  emit(lox::OpCode::PRINT);
+}
+
+void Parser::expression_statement() {
+  expression();
+  consume_or_error(TokenType::SEMICOLON, "expected ';' after expression");
+  // Discard the value left on the stack after evaluating the expression.
+  emit(lox::OpCode::POP);
 }
 
 void Parser::expression() { parse_precedence(Precedence::ASSIGNMENT); }

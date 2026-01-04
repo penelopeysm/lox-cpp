@@ -26,12 +26,16 @@ private:
   std::vector<lox::Value> stack;
   size_t stack_ptr = 0;
   StringMap& interned_strings;
+  // maps from the name of a global variable to its index in the chunk's constants table
+  std::unordered_map<std::string, size_t> globals_indices;
 
   // Read a byte and advance the instruction pointer.
   uint8_t read_byte();
   // Read a constant using the current byte, and advance the instruction
   // pointer.
   lox::Value read_constant();
+  // Read the name of a global variable from the chunk's constant table.
+  std::string read_global_name();
 
   void error(const std::string& message);
 
@@ -40,6 +44,7 @@ private:
   // Move the stack pointer back to the base
   VM& stack_reset();
   VM& stack_push(const lox::Value& value);
+  lox::Value stack_peek();
   lox::Value stack_pop();
   // Apply `op` to the top value on the stack, replacing it with the result
   lox::Value

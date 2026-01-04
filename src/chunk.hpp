@@ -23,6 +23,11 @@ enum class OpCode {
   EQUAL,
   GREATER,
   LESS,
+  PRINT,
+  POP,
+  GET_GLOBAL,
+  SET_GLOBAL,
+  DEFINE_GLOBAL,
   // more to come
 };
 

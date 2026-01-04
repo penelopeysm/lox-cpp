@@ -75,6 +75,26 @@ lox::Value VM::stack_pop() {
   return stack[stack_ptr];
 }
 
+lox::Value VM::stack_peek() {
+  if (stack_ptr == 0) {
+    error("stack_peek: stack underflow");
+  }
+  return stack[stack_ptr - 1];
+}
+
+std::string VM::read_global_name() {
+  lox::Value var_name_value = read_constant();
+  // This is technically unsafe since the constant could be any Value, but
+  // by construction of the parser it should always be a string.
+  auto var_name_ptr = std::get<std::shared_ptr<Obj>>(var_name_value);
+  auto var_name_str = std::dynamic_pointer_cast<ObjString>(var_name_ptr);
+  if (var_name_str == nullptr) {
+    throw std::runtime_error(
+        "unreachable: global variable name is not a string");
+  }
+  return var_name_str->value;
+}
+
 lox::Value
 VM::stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op) {
   if (stack_ptr == 0) {
@@ -115,7 +135,8 @@ VM& VM::handle_binary_op(const std::function<lox::Value(double, double)>& op) {
 }
 
 InterpretResult VM::run() {
-  while (true) {
+  size_t nbytes = chunk.size();
+  while (ip < nbytes) {
 #ifdef LOX_DEBUG
     stack_dump(std::cout);
     chunk.disassemble(std::cout, ip);
@@ -178,9 +199,78 @@ InterpretResult VM::run() {
       handle_binary_op([](double a, double b) { return a < b; });
       continue;
     }
+    case OpCode::PRINT: {
+      lox::Value value = stack_pop();
+      // operator<< on Value is already defined to print the correct
+      // representation
+      std::cout << value << "\n";
+      continue;
+    }
+    case OpCode::POP: {
+      stack_pop();
+      continue;
+    }
+    case OpCode::DEFINE_GLOBAL: {
+      // The parser will have pushed the variable name (as a string) onto the
+      // chunk's constant table. Separately, in the bytecode, it will have a
+      // DEFINE_GLOBAL instruction followed by the constant index. When we get
+      // here we have already seen the DEFINE_GLOBAL instruction, so we need to
+      // read the variable name.
+      std::string var_name = read_global_name();
+      // After this, the parser will have emitted bytecode that pushes the value
+      // of the variable onto the stack. So we need to pop that value. (Or,
+      // following the book, just peek it now and pop it later, after we've
+      // stored it.)
+      lox::Value var_value = stack_peek();
+      // Then we can define the global variable by adding it to our map.
+      size_t global_index = chunk.push_constant(var_value);
+      // NOTE: operator[] will create a new entry if the key doesn't exist yet.
+      // It returns a reference to the value, which can then be assigned to.
+      // So this doesn't desugar to something like setindex! in Julia, it is
+      // just a composition of operator[] and assignment.
+      globals_indices[var_name] = global_index;
+      stack_pop(); // now pop the value
+      continue;
+    }
+    case OpCode::GET_GLOBAL: {
+      std::string var_name = read_global_name();
+      // Now that we have the name of the variable, we can look it up in our map
+      auto it = globals_indices.find(var_name);
+      if (it == globals_indices.end()) {
+        error("undefined variable '" + var_name + "'");
+      }
+      size_t global_index = it->second;
+      lox::Value var_value = chunk.constant_at(global_index);
+      stack_push(var_value);
+      continue;
+    }
+    case OpCode::SET_GLOBAL: {
+      std::string var_name = read_global_name();
+      auto it = globals_indices.find(var_name);
+      if (it == globals_indices.end()) {
+        error("undefined variable '" + var_name + "'");
+      } else {
+        // Update the value in the chunk's constant table.
+        // Peek not pop because assignment expressions return the assigned value
+        // and it might be used again later!
+        lox::Value var_value = stack_peek();
+        size_t new_global_index = chunk.push_constant(var_value);
+        // Update the mapping to point to the new constant index
+        globals_indices[var_name] = new_global_index;
+      }
+      continue;
+    }
+    default: {
+      error("reached unreachable code in VM::run");
+    }
     }
   }
-  error("reached unreachable code in VM::run");
+  if (ip == nbytes) {
+    // Successfully read all bytes.
+    return InterpretResult::OK;
+  } else {
+    throw std::runtime_error("unexpected end of bytecode");
+  }
 }
 
 } // namespace lox

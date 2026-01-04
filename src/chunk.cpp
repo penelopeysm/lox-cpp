@@ -123,10 +123,13 @@ size_t lox::Chunk::debuginfo_at(size_t bytecode_offset) const {
 
 size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   size_t nbytes = code.size();
-  if (offset >= nbytes) {
+  if (offset > nbytes) {
     throw std::out_of_range("loxc: Chunk::disassemble: offset " +
                             std::to_string(offset) + " out of range (size " +
                             std::to_string(nbytes) + ")");
+  } else if (offset == nbytes) {
+    os << "Reached end of Chunk with " << nbytes << " bytes\n";
+    return offset;
   }
   print_offset(os, offset);
   uint8_t instruction = code[offset];
@@ -177,6 +180,32 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   case OpCode::LESS: {
     os << "LESS\n";
     return offset + 1;
+  }
+  case OpCode::PRINT: {
+    os << "PRINT\n";
+    return offset + 1;
+  }
+  case OpCode::POP: {
+    os << "POP\n";
+    return offset + 1;
+  }
+  case OpCode::GET_GLOBAL: {
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "GET_GLOBAL " << constant << "\n";
+    return offset + 2;
+  }
+  case OpCode::SET_GLOBAL: {
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "SET_GLOBAL " << constant << "\n";
+    return offset + 2;
+  }
+  case OpCode::DEFINE_GLOBAL: {
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "DEFINE_GLOBAL " << constant << "\n";
+    return offset + 2;
   }
   }
 }
