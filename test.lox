@@ -1,9 +1,8 @@
-// var x = "Hello, world.";
-// print "Hello" + ", " + "world." == x;
-// print 1 + 2 * 3;
-// print x;
-// x = "redefined!";
-// print x;
-// print (x = 3.14);
-var x = 1;
+var x = "Hello, world.";
+print "Hello" + ", " + "world." == x;
+print 1 + 2 * 3;
+print x;
+x = "redefined!";
+print x;
+print (x = 3.14);
 // x * x = 3.14;

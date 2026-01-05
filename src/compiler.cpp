@@ -32,7 +32,7 @@ Parser::Parser(std::unique_ptr<Scanner> scanner, Chunk chunk,
                StringMap& string_map)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), string_map(string_map),
-      chunk(chunk) {}
+      chunk(std::move(chunk)), compiler() {}
 
 void Parser::advance() {
   previous = current;
@@ -95,7 +95,7 @@ size_t Parser::emit_constant(lox::Value value) {
 void Parser::parse() {
   advance(); // Load the first token into `current`.
   while (current.type != TokenType::_EOF && !has_error()) {
-    declaration(true);
+    declaration();
   }
 }
 
@@ -144,31 +144,39 @@ void Parser::parse_precedence(Precedence precedence) {
   }
 }
 
-void Parser::declaration(bool can_assign) {
+void Parser::declaration() {
   if (consume_if(TokenType::VAR)) {
-    var_declaration(can_assign);
+    var_declaration();
   } else {
-    statement(can_assign);
+    statement();
   }
 }
 
-void Parser::var_declaration(bool can_assign) {
-  // identifier
+void Parser::var_declaration() {
+  // Parse identifier
   consume_or_error(TokenType::IDENTIFIER, "expected variable name");
   std::string_view var_name = previous.lexeme;
-  // optional initializer
+  // Determine whether it's a global or local variable
+  bool is_local = compiler.get_scope_depth() > 0;
+  // Initializer. These instructions, when executed, will add the initial value
+  // to the top of the stack.
   if (consume_if(TokenType::EQUAL)) {
-    expression(can_assign);
+    expression();
   } else {
     // if no initializer provided, initialize to nil
     emit_constant(std::monostate());
   }
+  // For a local variable, we just need to define it in the compiler.
+  if (is_local) {
+    compiler.declare_local(var_name);
+  } else {
+    define_global_variable(var_name);
+  }
   consume_or_error(TokenType::SEMICOLON,
                    "expected ';' after variable declaration");
-  define_variable(var_name);
 }
 
-void Parser::define_variable(std::string_view name) {
+void Parser::define_global_variable(std::string_view name) {
   std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(name);
   // NOTE: we use make_constant here (not emit_constant) because we don't want
   // to emit a CONSTANT instruction right now. If we did so then the VM would
@@ -192,7 +200,7 @@ void Parser::named_variable(std::string_view lexeme, bool can_assign) {
       error("invalid assignment target", previous.line);
     }
     // It's an assignment; evaluate the RHS expression first.
-    expression(can_assign);
+    expression();
     emit(lox::OpCode::SET_GLOBAL);
   } else {
     // Just variable access.
@@ -202,28 +210,39 @@ void Parser::named_variable(std::string_view lexeme, bool can_assign) {
   return;
 }
 
-void Parser::statement(bool can_assign) {
+void Parser::block() {
+  while (!consume_if(TokenType::RIGHT_BRACE) && !is_at_end() && !has_error()) {
+    declaration();
+  }
+  consume_or_error(TokenType::RIGHT_BRACE, "expected '}' after block");
+}
+
+void Parser::statement() {
   if (consume_if(TokenType::PRINT)) {
-    print_statement(can_assign);
+    print_statement();
+  } else if (consume_if(TokenType::LEFT_BRACE)) {
+    compiler.begin_scope();
+    block();
+    compiler.end_scope();
   } else {
-    expression_statement(can_assign);
+    expression_statement();
   }
 }
 
-void Parser::print_statement(bool can_assign) {
-  expression(can_assign);
+void Parser::print_statement() {
+  expression();
   consume_or_error(TokenType::SEMICOLON, "expected ';' after value");
   emit(lox::OpCode::PRINT);
 }
 
-void Parser::expression_statement(bool can_assign) {
-  expression(can_assign);
+void Parser::expression_statement() {
+  expression();
   consume_or_error(TokenType::SEMICOLON, "expected ';' after expression");
   // Discard the value left on the stack after evaluating the expression.
   emit(lox::OpCode::POP);
 }
 
-void Parser::expression(bool _) { parse_precedence(Precedence::ASSIGNMENT); }
+void Parser::expression() { parse_precedence(Precedence::ASSIGNMENT); }
 
 void Parser::number(bool _) {
   double value = std::stod(std::string(previous.lexeme));
@@ -252,8 +271,8 @@ void Parser::string(bool _) {
   emit_constant(obj_str);
 }
 
-void Parser::grouping(bool can_assign) {
-  expression(can_assign);
+void Parser::grouping(bool _) {
+  expression();
   consume_or_error(TokenType::RIGHT_PAREN, "expected ')'");
 }
 

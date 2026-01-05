@@ -2,9 +2,9 @@
 #include "scanner.hpp"
 #include "stringmap.hpp"
 #include <memory>
-#include <string_view>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 
 namespace lox {
 
@@ -23,6 +23,29 @@ enum class Precedence {
 };
 Precedence next_precedence(Precedence in);
 
+struct Local {
+  size_t depth;
+  std::string_view name;
+};
+
+class Compiler {
+public:
+  Compiler() : scope_depth(0) {}
+  void begin_scope() { scope_depth++; }
+  void end_scope() { scope_depth--; }
+  size_t get_scope_depth() const { return scope_depth; }
+  void declare_local(std::string_view name) {
+    if (locals.size() >= 256) {
+      throw std::runtime_error("too many local variables in function");
+    }
+    locals.push_back(Local{scope_depth, name});
+  }
+
+private:
+  std::vector<Local> locals;
+  size_t scope_depth;
+};
+
 class Parser {
 public:
   Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk,
@@ -39,6 +62,7 @@ private:
   std::optional<std::pair<std::string, size_t>> errmsg;
   StringMap& string_map;
   Chunk chunk;
+  Compiler compiler;
 
   // Interact with scanner
   void advance();
@@ -51,12 +75,13 @@ private:
 
   // Parsing methods
   void parse_precedence(Precedence precedence);
-  void declaration(bool can_assign);
-  void var_declaration(bool can_assign);
-  void statement(bool can_assign);
-  void print_statement(bool can_assign);
-  void expression_statement(bool can_assign);
-  void expression(bool can_assign);
+  void block();
+  void declaration();
+  void var_declaration();
+  void statement();
+  void print_statement();
+  void expression_statement();
+  void expression();
   void number(bool can_assign);
   void grouping(bool can_assign);
   void unary(bool can_assign);
@@ -64,7 +89,7 @@ private:
   void string(bool can_assign);
   void variable(bool can_assign);
   void literal(bool can_assign);
-  void define_variable(std::string_view name);
+  void define_global_variable(std::string_view name);
   void named_variable(std::string_view lexeme, bool can_assign);
 
   // Interact with chunk
