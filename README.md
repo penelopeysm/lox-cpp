@@ -25,3 +25,18 @@ note that building the test target also builds the main programme (so this ensur
 brew install pkg-config catch2
 make test
 ```
+
+## differences
+
+I allow
+
+```
+{
+  var a = 1;
+  {
+    var a = a;
+  }
+}
+```
+
+The initialiser on the right hand side refers to the outer `a`, not itself. Original Lox errors in this case.

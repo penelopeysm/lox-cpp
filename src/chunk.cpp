@@ -207,6 +207,21 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     os << "DEFINE_GLOBAL " << constant << "\n";
     return offset + 2;
   }
+  case OpCode::SET_LOCAL: {
+    uint8_t local_index = code[offset + 1];
+    // NOTE: printing `local_index` itself will print the character with ASCII
+    // code `local_index`, which is almost certainly unprintable. We need to
+    // cast it to an integer type first. The 'proper' way would be
+    // static_cast<int>, but the unary + operator also works as that is a
+    // promotion operator.
+    os << "SET_LOCAL " << +local_index << "\n";
+    return offset + 2;
+  }
+  case OpCode::GET_LOCAL: {
+    uint8_t local_index = code[offset + 1];
+    os << "GET_LOCAL " << +local_index << "\n";
+    return offset + 2;
+  }
   }
 }
 

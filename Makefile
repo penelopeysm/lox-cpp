@@ -3,7 +3,7 @@ CXX := clang++
 # NOTE: -MMD and -MP are used to generate a list of (header and source)
 # dependencies for each object file and header file. These have the `.d`
 # extension.
-CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP -Isrc
+CXXFLAGS := -std=c++20 -Wall -Wextra -Wimplicit-fallthrough -MMD -MP -Isrc
 
 BUILD ?= debug
 # -g is used to include debug information in the compiled binaries, useful for

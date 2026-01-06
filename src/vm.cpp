@@ -151,7 +151,7 @@ InterpretResult VM::run() {
     case OpCode::CONSTANT: {
       lox::Value c = read_constant();
       stack_push(c);
-      continue;
+      break;
     }
     case OpCode::NEGATE: {
       lox::Value value = stack_pop();
@@ -160,55 +160,55 @@ InterpretResult VM::run() {
       } else {
         error("operand must be a number");
       }
-      continue;
+      break;
     }
     case OpCode::NOT: {
       stack_modify_top(
           [](const lox::Value& value) { return !(lox::is_truthy(value)); });
-      continue;
+      break;
     }
     case OpCode::ADD: {
       lox::Value b = stack_pop();
       lox::Value a = stack_pop();
       stack_push(lox::add(a, b, interned_strings));
-      continue;
+      break;
     }
     case OpCode::SUBTRACT: {
       handle_binary_op([](double a, double b) { return a - b; });
-      continue;
+      break;
     }
     case OpCode::MULTIPLY: {
       handle_binary_op([](double a, double b) { return a * b; });
-      continue;
+      break;
     }
     case OpCode::DIVIDE: {
       handle_binary_op([](double a, double b) { return a / b; });
-      continue;
+      break;
     }
     case OpCode::EQUAL: {
       lox::Value b = stack_pop();
       lox::Value a = stack_pop();
       stack_push(lox::is_equal(a, b));
-      continue;
+      break;
     }
     case OpCode::GREATER: {
       handle_binary_op([](double a, double b) { return a > b; });
-      continue;
+      break;
     }
     case OpCode::LESS: {
       handle_binary_op([](double a, double b) { return a < b; });
-      continue;
+      break;
     }
     case OpCode::PRINT: {
       lox::Value value = stack_pop();
       // operator<< on Value is already defined to print the correct
       // representation
       std::cout << value << "\n";
-      continue;
+      break;
     }
     case OpCode::POP: {
       stack_pop();
-      continue;
+      break;
     }
     case OpCode::DEFINE_GLOBAL: {
       // The parser will have pushed the variable name (as a string) onto the
@@ -230,7 +230,7 @@ InterpretResult VM::run() {
       // just a composition of operator[] and assignment.
       globals_indices[var_name] = global_index;
       stack_pop(); // now pop the value
-      continue;
+      break;
     }
     case OpCode::GET_GLOBAL: {
       std::string var_name = read_global_name();
@@ -242,7 +242,7 @@ InterpretResult VM::run() {
       size_t global_index = it->second;
       lox::Value var_value = chunk.constant_at(global_index);
       stack_push(var_value);
-      continue;
+      break;
     }
     case OpCode::SET_GLOBAL: {
       std::string var_name = read_global_name();
@@ -258,10 +258,28 @@ InterpretResult VM::run() {
         // Update the mapping to point to the new constant index
         globals_indices[var_name] = new_global_index;
       }
-      continue;
+      break;
     }
-    default: {
-      error("reached unreachable code in VM::run");
+    case OpCode::SET_LOCAL: {
+      uint8_t local_index = read_byte();
+      if (static_cast<size_t>(local_index) > stack_ptr) {
+        std::cout << "stack_ptr=" << stack_ptr
+                  << ", local_index=" << +local_index << "\n";
+        error("SET_LOCAL: invalid local variable index");
+      }
+      stack[local_index] = stack_peek();
+      break;
+    }
+    case OpCode::GET_LOCAL: {
+      uint8_t local_index = read_byte();
+      if (static_cast<size_t>(local_index) > stack_ptr) {
+        std::cout << "stack_ptr=" << stack_ptr
+                  << ", local_index=" << +local_index << "\n";
+        error("GET_LOCAL: invalid local variable index");
+      }
+      lox::Value local_value = stack[local_index];
+      stack_push(local_value);
+      break;
     }
     }
   }

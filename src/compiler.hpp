@@ -32,14 +32,14 @@ class Compiler {
 public:
   Compiler() : scope_depth(0) {}
   void begin_scope() { scope_depth++; }
-  void end_scope() { scope_depth--; }
+  // Returns the number of locals removed from the locals list when exiting a
+  // scope. Parser needs to know this so that it can emit POP instructions.
+  [[nodiscard]] size_t end_scope();
+  [[nodiscard]] int resolve_local(std::string_view name);
   size_t get_scope_depth() const { return scope_depth; }
-  void declare_local(std::string_view name) {
-    if (locals.size() >= 256) {
-      throw std::runtime_error("too many local variables in function");
-    }
-    locals.push_back(Local{scope_depth, name});
-  }
+  // Returns a boolean indicating whether there was an error declaring the
+  // local variable (e.g., duplicate variable name in the same scope).
+  bool declare_local(std::string_view name);
 
 private:
   std::vector<Local> locals;

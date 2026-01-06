@@ -28,6 +28,8 @@ enum class OpCode {
   GET_GLOBAL,
   SET_GLOBAL,
   DEFINE_GLOBAL,
+  SET_LOCAL,
+  GET_LOCAL,
   // more to come
 };
 

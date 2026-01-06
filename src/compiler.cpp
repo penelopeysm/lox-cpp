@@ -25,6 +25,47 @@ Precedence next_precedence(Precedence in) {
   return static_cast<Precedence>(static_cast<int>(in) + 1);
 }
 
+size_t Compiler::end_scope() {
+  size_t num_popped = 0;
+  while (!locals.empty() && locals.back().depth == scope_depth) {
+    locals.pop_back();
+    ++num_popped;
+  }
+  --scope_depth;
+  return num_popped;
+}
+
+bool Compiler::declare_local(std::string_view name) {
+  if (locals.size() >= 256) {
+    throw std::runtime_error("too many local variables in function");
+  }
+  // Check for duplicates. We go backwards from the end of the locals vector
+  // until we find something that has a smaller depth than the current scope
+  // (which means that we've rewound until before the current scope began)
+  // or we find a duplicate.
+  for (auto it = locals.rbegin(); it != locals.rend(); ++it) {
+    if (it->depth < scope_depth) {
+      break;
+    }
+    if (it->name == name && it->depth == scope_depth) {
+      // oops!
+      return true;
+    }
+  }
+  // If we reached here, we're good.
+  locals.push_back(Local{scope_depth, name});
+  return false;
+}
+
+int Compiler::resolve_local(std::string_view name) {
+  for (int i = static_cast<int>(locals.size()) - 1; i >= 0; --i) {
+    if (locals[i].name == name) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
@@ -192,21 +233,39 @@ void Parser::variable(bool can_assign) {
 }
 
 void Parser::named_variable(std::string_view lexeme, bool can_assign) {
-  std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
-  size_t constant_index = make_constant(var_name_str);
-  // It might be an assignment though...
-  if (consume_if(TokenType::EQUAL)) {
-    if (!can_assign) {
-      error("invalid assignment target", previous.line);
+  int local_index = compiler.resolve_local(lexeme);
+  if (local_index == -1) {
+    // Not found, so it's a global variable
+    std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
+    size_t constant_index = make_constant(var_name_str);
+    // It might be an assignment though...
+    if (consume_if(TokenType::EQUAL)) {
+      if (!can_assign) {
+        error("invalid assignment target", previous.line);
+      }
+      // It's an assignment; evaluate the RHS expression first.
+      expression();
+      emit(lox::OpCode::SET_GLOBAL);
+      emit(static_cast<uint8_t>(constant_index));
+    } else {
+      // Just variable access.
+      emit(lox::OpCode::GET_GLOBAL);
+      emit(static_cast<uint8_t>(constant_index));
     }
-    // It's an assignment; evaluate the RHS expression first.
-    expression();
-    emit(lox::OpCode::SET_GLOBAL);
   } else {
-    // Just variable access.
-    emit(lox::OpCode::GET_GLOBAL);
+    // It's a local variable located at local_index on the stack.
+    if (consume_if(TokenType::EQUAL)) {
+      if (!can_assign) {
+        error("invalid assignment target", previous.line);
+      }
+      expression();
+      emit(lox::OpCode::SET_LOCAL);
+      emit(static_cast<uint8_t>(local_index));
+    } else {
+      emit(lox::OpCode::GET_LOCAL);
+      emit(static_cast<uint8_t>(local_index));
+    }
   }
-  emit(static_cast<uint8_t>(constant_index));
   return;
 }
 
@@ -214,7 +273,6 @@ void Parser::block() {
   while (!consume_if(TokenType::RIGHT_BRACE) && !is_at_end() && !has_error()) {
     declaration();
   }
-  consume_or_error(TokenType::RIGHT_BRACE, "expected '}' after block");
 }
 
 void Parser::statement() {
@@ -223,7 +281,10 @@ void Parser::statement() {
   } else if (consume_if(TokenType::LEFT_BRACE)) {
     compiler.begin_scope();
     block();
-    compiler.end_scope();
+    size_t num_popped = compiler.end_scope();
+    for (size_t i = 0; i < num_popped; ++i) {
+      emit(lox::OpCode::POP);
+    }
   } else {
     expression_statement();
   }
