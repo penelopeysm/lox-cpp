@@ -1,0 +1,20 @@
+class Hydrogen {
+    // Private fields begin with underscores.
+    init() {
+        this._atomic_number = 1;
+    }
+
+    atomic_number() {
+        return this._atomic_number;
+    }
+}
+
+var h = Hydrogen();
+
+// You can read them with class methods.
+// If this file ran, it would print 1.0.
+print h.atomic_number();
+
+// But you can't read them outside of the class.
+// (It's a parse time error, so this file can't be run.)
+print h._atomic_number;

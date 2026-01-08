@@ -1,0 +1,19 @@
+fun fst(t) {
+    return t(true);
+}
+fun snd(t) {
+    return t(false);
+}
+fun pair(a, b) {
+    fun inner(is_fst) {
+        if (is_fst) {
+            return a;
+        } else {
+            return b;
+        }
+    }
+    return inner;
+}
+var t = pair("first", "second");
+print fst(t);
+print snd(t);

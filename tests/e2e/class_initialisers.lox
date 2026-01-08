@@ -1,0 +1,15 @@
+class Dog {
+    init() {
+        this.name = "Unnamed Dog";
+    }
+    init(name) {
+        this.name = name;
+    }
+
+    speak() {
+        print this.name + " says woof!";
+    }
+}
+
+Dog("Heidi").speak();  // Heidi says woof!
+Dog().speak();         // Unnamed Dog says woof!

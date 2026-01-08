@@ -1,0 +1,7 @@
+if (1) {
+    print "one is truthy";
+}
+
+if (!nil) {
+    print "nil is falsy";
+}

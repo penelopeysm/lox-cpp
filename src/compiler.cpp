@@ -292,7 +292,7 @@ void Parser::statement() {
 
 void Parser::print_statement() {
   expression();
-  consume_or_error(TokenType::SEMICOLON, "expected ';' after value");
+  consume_or_error(TokenType::SEMICOLON, "expected ';' after value in print statement");
   emit(lox::OpCode::PRINT);
 }
 

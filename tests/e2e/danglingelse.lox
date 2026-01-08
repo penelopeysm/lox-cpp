@@ -1,0 +1,7 @@
+if (true)
+    if (false)
+        // This will never be printed.
+        { print "hello"; }
+    else 
+        // This should be printed, because the parser claims this else block for the inner if.
+        { print "world"; }

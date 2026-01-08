@@ -1,0 +1,6 @@
+var x = 1 + 2;
+if (x < 4) {
+    print "one plus two is less than four";
+} else {
+    print "one plus two is more than four";
+}

@@ -1,0 +1,19 @@
+class A {
+  method() {
+    print "A method";
+  }
+}
+
+class B extends A {
+  method() {
+    print "B method";
+  }
+
+  test() {
+    super.method();
+  }
+}
+
+class C extends B {}
+
+C().test();
