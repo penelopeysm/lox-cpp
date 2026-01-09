@@ -30,6 +30,9 @@ enum class OpCode {
   DEFINE_GLOBAL,
   SET_LOCAL,
   GET_LOCAL,
+  JUMP_IF_FALSE,
+  JUMP,
+  LOOP,
   // more to come
 };
 
@@ -47,6 +50,7 @@ public:
   uint8_t at(size_t index) const;
   Chunk& write(OpCode opcode, size_t line);
   Chunk& write(uint8_t byte, size_t line);
+  Chunk& patch_at_offset(size_t offset, uint8_t byte);
   Chunk& reset();
   // Returns the index of the constant just added
   size_t push_constant(lox::Value value);

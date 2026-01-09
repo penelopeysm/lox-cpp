@@ -6,6 +6,12 @@
 #include <iostream>
 #include <stdexcept>
 
+namespace {
+size_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
+  return (static_cast<size_t>(high_byte) << 8) | low_byte;
+}
+} // namespace
+
 namespace lox {
 
 lox::InterpretResult interpret(std::string_view source) {
@@ -138,14 +144,14 @@ InterpretResult VM::run() {
   size_t nbytes = chunk.size();
   while (ip < nbytes) {
 #ifdef LOX_DEBUG
-    stack_dump(std::cout);
-    chunk.disassemble(std::cout, ip);
+    stack_dump(std::cerr);
+    chunk.disassemble(std::cerr, ip);
 #endif
     uint8_t instruction = read_byte();
     switch (static_cast<OpCode>(instruction)) {
     case OpCode::RETURN: {
       // Don't have actual return values yet, so just print the top of the stack
-      std::cout << "returning " << stack_pop() << "\n";
+      std::cerr << "returning " << stack_pop() << "\n";
       return InterpretResult::OK;
     }
     case OpCode::CONSTANT: {
@@ -263,7 +269,7 @@ InterpretResult VM::run() {
     case OpCode::SET_LOCAL: {
       uint8_t local_index = read_byte();
       if (static_cast<size_t>(local_index) > stack_ptr) {
-        std::cout << "stack_ptr=" << stack_ptr
+        std::cerr << "stack_ptr=" << stack_ptr
                   << ", local_index=" << +local_index << "\n";
         error("SET_LOCAL: invalid local variable index");
       }
@@ -273,12 +279,37 @@ InterpretResult VM::run() {
     case OpCode::GET_LOCAL: {
       uint8_t local_index = read_byte();
       if (static_cast<size_t>(local_index) > stack_ptr) {
-        std::cout << "stack_ptr=" << stack_ptr
+        std::cerr << "stack_ptr=" << stack_ptr
                   << ", local_index=" << +local_index << "\n";
         error("GET_LOCAL: invalid local variable index");
       }
       lox::Value local_value = stack[local_index];
       stack_push(local_value);
+      break;
+    }
+    case OpCode::JUMP_IF_FALSE: {
+      // Don't pop the condition yet, because we might need to use it for
+      // logical shortcircuiting later.
+      lox::Value condition = stack_peek();
+      if (!lox::is_truthy(condition)) {
+        uint8_t high_byte = read_byte();
+        uint8_t low_byte = read_byte();
+        size_t jump_offset = get_jump_offset(high_byte, low_byte);
+        ip += jump_offset;
+      } else {
+        ip += 2; // skip the jump offset bytes
+      }
+      break;
+    }
+    case OpCode::JUMP: {
+      uint8_t high_byte = read_byte();
+      uint8_t low_byte = read_byte();
+      size_t jump_offset = get_jump_offset(high_byte, low_byte);
+      ip += jump_offset;
+      break;
+    }
+    case OpCode::LOOP: {
+      throw std::runtime_error("unimplemented: LOOP opcode");
       break;
     }
     }

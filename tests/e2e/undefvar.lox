@@ -1,3 +1,0 @@
-// This should pretty-print a nice error.
-
-print undefined;

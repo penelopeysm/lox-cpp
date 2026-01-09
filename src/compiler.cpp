@@ -14,7 +14,13 @@
 namespace {
 lox::scanner::Token SENTINEL_EOF =
     lox::scanner::Token(lox::scanner::TokenType::_EOF, "", 0);
+
+std::pair<uint8_t, uint8_t> split_jump_offset(uint16_t offset) {
+  uint8_t high_byte = static_cast<uint8_t>((offset >> 8) & 0xff);
+  uint8_t low_byte = static_cast<uint8_t>(offset & 0xff);
+  return std::pair(high_byte, low_byte);
 }
+} // namespace
 
 namespace lox {
 
@@ -78,7 +84,7 @@ Parser::Parser(std::unique_ptr<Scanner> scanner, Chunk chunk,
 void Parser::advance() {
   previous = current;
   current = scanner->scan_token();
-  // std::cout << to_string(current) << "\n";
+  // std::cerr << to_string(current) << "\n";
   if (current.type == TokenType::ERROR) {
     error(current.lexeme, current.line);
   }
@@ -131,6 +137,32 @@ size_t Parser::emit_constant(lox::Value value) {
   emit(lox::OpCode::CONSTANT);
   emit(static_cast<uint8_t>(constant_index));
   return constant_index;
+}
+
+size_t Parser::emit_jump(lox::OpCode jump_opcode) {
+  emit(jump_opcode);
+  // Placeholder for the jump offset (2 bytes)
+  emit(0xff);
+  emit(0xff);
+  // Return the index of the first byte of the offset
+  return chunk.size() - 2;
+}
+
+void Parser::patch_jump(size_t jump_byte, size_t target_byte) {
+  // we subtract 2 because those are the two bytes that contain the offset, and
+  // those get read with read_byte() which increments the instruction pointer
+  // already.
+  size_t jump_offset = target_byte - jump_byte - 2;
+  if (jump_offset > UINT16_MAX) {
+    error("Too much code to jump over.", previous.line);
+    return;
+  }
+  // Split the jump offset into two bytes
+  auto [high_byte, low_byte] =
+      split_jump_offset(static_cast<uint16_t>(jump_offset));
+  // Patch the two bytes into the chunk
+  chunk.patch_at_offset(jump_byte, high_byte)
+      .patch_at_offset(jump_byte + 1, low_byte);
 }
 
 void Parser::parse() {
@@ -278,6 +310,8 @@ void Parser::block() {
 void Parser::statement() {
   if (consume_if(TokenType::PRINT)) {
     print_statement();
+  } else if (consume_if(TokenType::IF)) {
+    if_statement();
   } else if (consume_if(TokenType::LEFT_BRACE)) {
     compiler.begin_scope();
     block();
@@ -292,8 +326,30 @@ void Parser::statement() {
 
 void Parser::print_statement() {
   expression();
-  consume_or_error(TokenType::SEMICOLON, "expected ';' after value in print statement");
+  consume_or_error(TokenType::SEMICOLON,
+                   "expected ';' after value in print statement");
   emit(lox::OpCode::PRINT);
+}
+
+void Parser::if_statement() {
+  consume_or_error(TokenType::LEFT_PAREN, "expected '(' after 'if'");
+  expression();
+  consume_or_error(TokenType::RIGHT_PAREN, "expected ')' after condition");
+  size_t jump_byte = emit_jump(lox::OpCode::JUMP_IF_FALSE);
+  // If the condition is true, we will fall through to here. First pop the value,
+  // then execute the 'if' branch.
+  emit(lox::OpCode::POP);
+  statement();
+  // When falling through the 'if' branch, we need to jump over the else
+  // branch, so we emit an unconditional jump here.
+  size_t else_jump_byte = emit_jump(lox::OpCode::JUMP);
+  patch_jump(jump_byte, chunk.size());
+  // Pop the condition value before we enter the else branch.
+  emit(lox::OpCode::POP);
+  if (consume_if(TokenType::ELSE)) {
+    statement();
+  }
+  patch_jump(else_jump_byte, chunk.size());
 }
 
 void Parser::expression_statement() {

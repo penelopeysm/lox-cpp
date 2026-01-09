@@ -117,11 +117,11 @@ void Scanner::scan_and_print() {
     Token token = scan_token();
     if (line != previous_line) {
       previous_line = line;
-      std::cout << std::format("{:4} ", line);
+      std::cerr << std::format("{:4} ", line);
     } else {
-      std::cout << "   | ";
+      std::cerr << "   | ";
     }
-    std::cout << token << "\n";
+    std::cerr << token << "\n";
 
     if (token.type == TokenType::_EOF)
       break;

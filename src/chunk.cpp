@@ -78,6 +78,17 @@ lox::Chunk& lox::Chunk::write(OpCode opcode, size_t line) {
   return lox::Chunk::write(static_cast<uint8_t>(opcode), line);
 }
 
+lox::Chunk& lox::Chunk::patch_at_offset(size_t offset, uint8_t byte) {
+  try {
+    code.at(offset) = byte;
+  } catch (const std::out_of_range&) {
+    throw std::out_of_range("loxc: Chunk::patch_at_offset: offset " +
+                            std::to_string(offset) + " out of range (size " +
+                            std::to_string(code.size()) + ")");
+  }
+  return *this;
+}
+
 lox::Chunk& lox::Chunk::reset() {
   // NOTE: clear() removes elements and so size() will return 0, but does not
   // change capacity
@@ -221,6 +232,24 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     uint8_t local_index = code[offset + 1];
     os << "GET_LOCAL " << +local_index << "\n";
     return offset + 2;
+  }
+  case OpCode::JUMP_IF_FALSE: {
+    uint8_t high_byte = code[offset + 1];
+    uint8_t low_byte = code[offset + 2];
+    uint16_t jump_offset = (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+    os << "JUMP_IF_FALSE " << jump_offset << "\n";
+    return offset + 3;
+  }
+  case OpCode::JUMP: {
+    uint8_t high_byte = code[offset + 1];
+    uint8_t low_byte = code[offset + 2];
+    uint16_t jump_offset = (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+    os << "JUMP " << jump_offset << "\n";
+    return offset + 3;
+  }
+  case OpCode::LOOP: {
+    throw std::runtime_error(
+        "loxc: disassemble: LOOP opcode not yet implemented");
   }
   }
 }

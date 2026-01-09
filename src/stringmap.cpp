@@ -10,7 +10,7 @@ std::shared_ptr<ObjString> StringMap::get_ptr(std::string_view key) {
   auto it = map.find(key);
   if (it == map.end()) {
 #ifdef LOX_DEBUG
-    std::cout << "StringMap: Creating new ObjString for key: " << key
+    std::cerr << "StringMap: Creating new ObjString for key: " << key
               << std::endl;
 #endif
     // Not found; create a new one.
@@ -19,7 +19,7 @@ std::shared_ptr<ObjString> StringMap::get_ptr(std::string_view key) {
     it = new_pair.first;
   } else {
 #ifdef LOX_DEBUG
-    std::cout << "StringMap: Found existing ObjString for key: " << key
+    std::cerr << "StringMap: Found existing ObjString for key: " << key
               << std::endl;
 #endif
   }

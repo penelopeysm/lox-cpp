@@ -1,7 +1,3 @@
-{
-   var a = 2;
-   print a;
-   {
-      var a = a;
-      print a;
+if (1 < 2) {
+    print "a";
 }

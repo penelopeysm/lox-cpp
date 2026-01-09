@@ -44,7 +44,7 @@ public:
   ObjString(std::string_view str) : value(std::string(str)) {}
 #ifdef LOX_DEBUG
   ~ObjString() override {
-    std::cout << "ObjString destructor called for \"" << value << "\"\n";
+    std::cerr << "ObjString destructor called for \"" << value << "\"\n";
   }
 #endif
   std::string to_repr() const override { return "\"" + value + "\""; }

@@ -80,6 +80,7 @@ private:
   void var_declaration();
   void statement();
   void print_statement();
+  void if_statement();
   void expression_statement();
   void expression();
   void number(bool can_assign);
@@ -101,6 +102,8 @@ private:
   // Pushes to the constant table and *additionally* emits the CONSTANT
   // instruction. Returns the index of the constant just added.
   size_t emit_constant(lox::Value value);
+  size_t emit_jump(lox::OpCode jump_opcode);
+  void patch_jump(size_t jump_byte, size_t jump_offset);
 
   using ParserMemFn = void (Parser::*)(bool can_assign);
   struct Rule {
