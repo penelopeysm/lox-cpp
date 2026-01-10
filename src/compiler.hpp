@@ -87,6 +87,8 @@ private:
   void grouping(bool can_assign);
   void unary(bool can_assign);
   void binary(bool can_assign);
+  void and_operator(bool can_assign);
+  void or_operator(bool can_assign);
   void string(bool can_assign);
   void variable(bool can_assign);
   void literal(bool can_assign);
@@ -160,7 +162,7 @@ private:
     case TokenType::NUMBER:
       return Rule{&Parser::number, NULL, Precedence::NONE};
     case TokenType::AND:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::and_operator, Precedence::AND};
     case TokenType::CLASS:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::ELSE:
@@ -176,7 +178,7 @@ private:
     case TokenType::NIL:
       return Rule{&Parser::literal, NULL, Precedence::NONE};
     case TokenType::OR:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::or_operator, Precedence::OR};
     case TokenType::PRINT:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::RETURN:

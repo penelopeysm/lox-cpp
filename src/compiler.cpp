@@ -412,6 +412,32 @@ void Parser::unary(bool _) {
   }
 }
 
+void Parser::and_operator(bool _) {
+  // We've already consumed the 'and' operator, as well as the left operand.
+  // If the left operand is truthy, we can get rid of it and then evaluate the
+  // right-operand. If it's falsy, we can short-circuit and skip the entire
+  // right-operand.
+  size_t end_jump = emit_jump(lox::OpCode::JUMP_IF_FALSE);
+  // If we don't follow the jump, that means it was truthy. Get rid of it
+  // and evaluate the right operand.
+  emit(lox::OpCode::POP);
+  parse_precedence(Precedence::AND);
+  // If we do follow the jump, we can skip over all of that.
+  patch_jump(end_jump, chunk.size());
+}
+
+void Parser::or_operator(bool _) {
+  // We've already consumed the 'and' operator, as well as the left operand.
+  // This is a bit more complicated because we don't have a JUMP_IF_TRUE opcode.
+  size_t end_jump = emit_jump(lox::OpCode::JUMP);
+  size_t right_operand_byte = chunk.size();
+  emit(lox::OpCode::POP);
+  parse_precedence(Precedence::OR);
+  patch_jump(end_jump, chunk.size());
+  size_t right_operand_jump = emit_jump(lox::OpCode::JUMP_IF_FALSE);
+  patch_jump(right_operand_jump, right_operand_byte);
+}
+
 void Parser::binary(bool _) {
   TokenType prev_type = previous.type;
   // Get the precedence of the operator we just consumed.
