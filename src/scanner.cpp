@@ -186,8 +186,8 @@ Token Scanner::scan_token() {
     return make_token(consume_next_if('=') ? TokenType::EQUAL_EQUAL
                                            : TokenType::EQUAL);
   case '<':
-    return make_token(consume_next_if('=') ? TokenType::LESS
-                                           : TokenType::LESS_EQUAL);
+    return make_token(consume_next_if('=') ? TokenType::LESS_EQUAL
+                                           : TokenType::LESS);
   case '>':
     return make_token(consume_next_if('=') ? TokenType::GREATER_EQUAL
                                            : TokenType::GREATER);

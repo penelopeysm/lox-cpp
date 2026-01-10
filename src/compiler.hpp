@@ -81,6 +81,8 @@ private:
   void statement();
   void print_statement();
   void if_statement();
+  void while_statement();
+  void for_statement();
   void expression_statement();
   void expression();
   void number(bool can_assign);

@@ -7,8 +7,8 @@
 #include <stdexcept>
 
 namespace {
-size_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
-  return (static_cast<size_t>(high_byte) << 8) | low_byte;
+int16_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
+  return (static_cast<int16_t>(high_byte) << 8) | low_byte;
 }
 } // namespace
 
@@ -294,7 +294,7 @@ InterpretResult VM::run() {
       if (!lox::is_truthy(condition)) {
         uint8_t high_byte = read_byte();
         uint8_t low_byte = read_byte();
-        size_t jump_offset = get_jump_offset(high_byte, low_byte);
+        int16_t jump_offset = get_jump_offset(high_byte, low_byte);
         ip += jump_offset;
       } else {
         ip += 2; // skip the jump offset bytes
