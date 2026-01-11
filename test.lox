@@ -1,10 +1,8 @@
-fun foo(a, b) {
-    return a + b;
+fun fib(n) {
+  if (n < 2) return n;
+  return fib(n - 2) + fib(n - 1);
 }
 
-fun a1() { return a2(); }
-fun a2() { return a3(); }
-fun a3() { return a4(); }
-fun a4() { return foo(1, 2); }
-
-print a1();
+var start = clock();
+print fib(35);
+print clock() - start;

@@ -11,6 +11,11 @@ int16_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
 }
 constexpr size_t MAX_CALL_FRAMES = 64;
 constexpr size_t MAX_STACK_SIZE = 64 * UINT8_MAX;
+
+lox::Value clock_native(size_t, const lox::Value*) {
+  return static_cast<double>(std::clock()) / CLOCKS_PER_SEC;
+}
+
 } // namespace
 
 namespace lox {
@@ -25,6 +30,7 @@ lox::InterpretResult interpret(std::string_view source) {
   StringMap string_map;
   // Create a top-level ObjFunction and invoke it.
   VM vm(std::move(scanner), string_map);
+  vm.define_native("clock", 0, clock_native);
   return vm.invoke_toplevel();
 }
 
@@ -153,6 +159,14 @@ void VM::call(std::shared_ptr<ObjFunction> callee, size_t arg_count) {
   CallFrame new_frame(callee, 0, stack_start);
   call_frames.push_back(new_frame);
   call_frame_ptr++;
+}
+
+VM& VM::define_native(
+    const std::string& name, size_t arity,
+    std::function<lox::Value(size_t, const lox::Value*)> function) {
+  auto native_fn = std::make_shared<ObjNativeFunction>(name, arity, function);
+  globals[name] = native_fn;
+  return *this;
 }
 
 VM& VM::handle_binary_op(const std::function<lox::Value(double, double)>& op) {
@@ -337,16 +351,27 @@ InterpretResult VM::run() {
         }
         auto maybe_fnptr = std::get<std::shared_ptr<lox::Obj>>(maybe_objptr);
         auto fnptr = std::dynamic_pointer_cast<ObjFunction>(maybe_fnptr);
-        if (fnptr == nullptr) {
-          throw std::runtime_error("can only call functions");
-        } else {
+        if (!(fnptr == nullptr)) {
           call(fnptr, nargs);
+        } else {
+          auto native_fnptr =
+              std::dynamic_pointer_cast<ObjNativeFunction>(maybe_fnptr);
+          if (!(native_fnptr == nullptr)) {
+            lox::Value retval =
+                native_fnptr->call(nargs, &stack[stack_ptr - nargs]);
+            // Pop the function and its arguments off the stack.
+            stack_ptr -= (nargs + 1);
+            // Push the return value onto the stack.
+            stack_push(retval);
+          } else {
+            throw std::runtime_error("can only call functions");
+          }
         }
         break;
       }
       case OpCode::RETURN: {
         lox::Value retval = stack_pop();
-        std::cerr << "returning " << retval << "\n";
+        // std::cerr << "returning " << retval << "\n";
         // Pop the current call frame.
         if (call_frame_ptr == 1) {
           // We're back at the top level, so we're done executing the entire

@@ -40,6 +40,8 @@ public:
   InterpretResult run();
   std::ostream& stack_dump(std::ostream& out) const;
   InterpretResult invoke_toplevel();
+  VM& define_native(const std::string& name, size_t arity,
+                    std::function<lox::Value(size_t, const lox::Value*)> function);
 
 private:
   std::vector<CallFrame> call_frames;

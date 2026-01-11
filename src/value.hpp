@@ -64,6 +64,27 @@ public:
   }
 };
 
+class ObjNativeFunction : public Obj {
+public:
+  ObjNativeFunction(
+      std::string_view name, size_t arity,
+      std::function<Value(size_t arg_count, const Value* args)> function)
+      : name(std::string(name)), arity(arity), function(function) {}
+
+  Value call(uint8_t arg_count, const Value* args);
+  std::string to_repr() const override { return "<native fn " + name + ">"; }
+  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+    throw std::runtime_error("loxc: add: cannot add function objects");
+  }
+
+private:
+  std::string name;
+  // The number of arguments it SHOULD take.
+  size_t arity;
+  // The actual C++ function that implements the native function.
+  std::function<Value(size_t arg_count, const Value* args)> function;
+};
+
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);
 Value add(const Value& a, const Value& b, StringMap& string_map);

@@ -30,6 +30,14 @@ Value ObjString::add(const std::shared_ptr<Obj>& other, StringMap& string_map) {
   return string_map.get_ptr(new_str);
 }
 
+Value ObjNativeFunction::call(uint8_t arg_count, const Value* args) {
+  if (arg_count != arity) {
+    throw std::runtime_error("expected " + std::to_string(arity) +
+                             " arguments but got " + std::to_string(arg_count));
+  }
+  return function(arg_count, args);
+}
+
 bool is_truthy(const Value& value) {
   if (std::holds_alternative<std::monostate>(value)) {
     return false;
@@ -75,7 +83,8 @@ Value add(const Value& a, const Value& b, StringMap& string_map) {
     auto bptr = std::get<std::shared_ptr<Obj>>(b);
     return aptr->add(bptr, string_map);
   } else {
-    throw std::runtime_error("operands to `+` must be two numbers or two strings");
+    throw std::runtime_error(
+        "operands to `+` must be two numbers or two strings");
   }
 }
 
