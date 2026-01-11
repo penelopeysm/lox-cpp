@@ -1,10 +1,10 @@
 fun foo(a, b) {
-    print a + b;
+    return a + b;
 }
 
-fun a1() { a2(); }
-fun a2() { a3(); }
-fun a3() { a4(); }
-fun a4() { foo(1, 2); }
+fun a1() { return a2(); }
+fun a2() { return a3(); }
+fun a3() { return a4(); }
+fun a4() { return foo(1, 2); }
 
-a1();
+print a1();

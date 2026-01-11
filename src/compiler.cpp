@@ -181,6 +181,9 @@ std::unique_ptr<ObjFunction> Parser::finalise_function() {
               << "\n";
     return nullptr;
   } else {
+    // If there's no explicit return statement, we tack one on the end that
+    // returns nil.
+    emit_constant(std::monostate());
     emit(lox::OpCode::RETURN);
     // Get the function object from the current compiler, and pop it off the
     // compiler stack.
@@ -190,8 +193,8 @@ std::unique_ptr<ObjFunction> Parser::finalise_function() {
   }
 }
 
-// This will consume `parser.current` if it matches `type` (and that means that
-// the consumed token will be stored in `parser.previous`!).
+// This will consume `parser.current` if it matches `type` (and that means
+// that the consumed token will be stored in `parser.previous`!).
 bool Parser::consume_or_error(TokenType type, std::string_view error_message) {
   bool found = current.type == type;
   if (found) {
@@ -423,6 +426,8 @@ void Parser::statement() {
     while_statement();
   } else if (consume_if(TokenType::FOR)) {
     for_statement();
+  } else if (consume_if(TokenType::RETURN)) {
+    return_statement();
   } else if (consume_if(TokenType::LEFT_BRACE)) {
     compiler->begin_scope();
     block();
@@ -433,6 +438,21 @@ void Parser::statement() {
   } else {
     expression_statement();
   }
+}
+
+void Parser::return_statement() {
+  if (compiler->is_at_top_level()) {
+    error("cannot return from top-level code", previous.line);
+  }
+  // Return value
+  if (consume_if(TokenType::SEMICOLON)) {
+    // No return value; return nil
+    emit_constant(std::monostate());
+  } else {
+    expression();
+    consume_or_error(TokenType::SEMICOLON, "expected ';' after return value");
+  }
+  emit(lox::OpCode::RETURN);
 }
 
 void Parser::print_statement() {

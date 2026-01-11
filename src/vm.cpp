@@ -176,12 +176,6 @@ InterpretResult VM::run() {
 #endif
       uint8_t instruction = read_byte();
       switch (static_cast<OpCode>(instruction)) {
-      case OpCode::RETURN: {
-        // Don't have actual return values yet, so just print the top of the
-        // stack
-        std::cerr << "returning " << stack_pop() << "\n";
-        return InterpretResult::OK;
-      }
       case OpCode::CONSTANT: {
         lox::Value c = read_constant();
         stack_push(c);
@@ -347,8 +341,27 @@ InterpretResult VM::run() {
           throw std::runtime_error("can only call functions");
         } else {
           call(fnptr, nargs);
-          // TODO pop the call frame
         }
+        break;
+      }
+      case OpCode::RETURN: {
+        lox::Value retval = stack_pop();
+        std::cerr << "returning " << retval << "\n";
+        // Pop the current call frame.
+        if (call_frame_ptr == 1) {
+          // We're back at the top level, so we're done executing the entire
+          // programme. Pop the top level function off the stack and finish.
+          stack_pop();
+          return InterpretResult::OK;
+        } else {
+          // Reset the VM's state to where it was before it entered the current
+          // call.
+          stack_ptr = current_frame().stack_start;
+          stack_push(retval);
+          --call_frame_ptr;
+          call_frames.pop_back();
+        }
+        break;
       }
       }
     }
@@ -364,8 +377,10 @@ InterpretResult VM::run() {
               << current_frame().get_current_debuginfo_line() << ": "
               << e.what() << "\n";
     // Print call stack
-    for (auto fp = call_frames.rbegin(); fp != call_frames.rend(); ++fp) {
-      std::cerr << " in function " << fp->function->name << "\n";
+    for (auto cf = call_frames.rbegin(); cf != call_frames.rend(); ++cf) {
+      std::string fname = cf->function->name;
+      std::size_t line = cf->get_current_debuginfo_line();
+      std::cerr << " in line " << line << ", function " << fname << "\n";
     }
     return InterpretResult::RUNTIME_ERROR;
   }

@@ -55,6 +55,7 @@ public:
   // Returns a boolean indicating whether there was an error declaring the
   // local variable (e.g., duplicate variable name in the same scope).
   bool declare_local(std::string_view name);
+  bool is_at_top_level() const { return is_top_level; }
 
   size_t get_chunk_size() const { return current_function->chunk.size(); }
   std::unique_ptr<ObjFunction> extract_current_function() {
@@ -127,6 +128,7 @@ private:
   void if_statement();
   void while_statement();
   void for_statement();
+  void return_statement();
   void expression_statement();
   void expression();
   void call(bool can_assign);

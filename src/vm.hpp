@@ -43,10 +43,12 @@ public:
 
 private:
   std::vector<CallFrame> call_frames;
+  // Annoyingly, this is one-indexed :(.
   size_t call_frame_ptr;
   // NOTE: We use std::vector here instead of std::stack because the latter does
   // not provide random access (you can only access the top element).
   std::vector<lox::Value> stack;
+  // This is zero-indexed.
   size_t stack_ptr;
   StringMap& interned_strings;
   // maps from the name of a global variable to its value
