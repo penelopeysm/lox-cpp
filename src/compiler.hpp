@@ -30,8 +30,9 @@ struct Local {
 
 class Compiler {
 public:
-  Compiler(std::unique_ptr<ObjFunction> fnptr, bool is_top_level)
-      : scope_depth(0), current_function(std::move(fnptr)), is_top_level(is_top_level) {
+  Compiler(std::unique_ptr<ObjFunction> fnptr)
+      : scope_depth(0), current_function(std::move(fnptr)), is_top_level(true),
+        parent(nullptr) {
     // Reserve slot 0 of the stack for VM internal use. Note that this, on its
     // own, will mess with the VM's state since this does not actually push to
     // the stack at runtime. We have to 'balance' this out in the VM by pushing
@@ -39,6 +40,12 @@ public:
     // executing the chunk.
     declare_local("");
   }
+  Compiler(std::unique_ptr<ObjFunction> fnptr, std::unique_ptr<Compiler> parent)
+      : scope_depth(0), current_function(std::move(fnptr)), is_top_level(false),
+        parent(std::move(parent)) {
+    declare_local("");
+  }
+
   void begin_scope() { scope_depth++; }
   // Returns the number of locals removed from the locals list when exiting a
   // scope. Parser needs to know this so that it can emit POP instructions.
@@ -49,9 +56,7 @@ public:
   // local variable (e.g., duplicate variable name in the same scope).
   bool declare_local(std::string_view name);
 
-  size_t get_chunk_size() const {
-    return current_function->chunk.size();
-  }
+  size_t get_chunk_size() const { return current_function->chunk.size(); }
   std::unique_ptr<ObjFunction> extract_current_function() {
     return std::move(current_function);
   }
@@ -67,18 +72,24 @@ public:
     current_function->chunk.patch_at_offset(offset + 1, low_byte);
   }
 
+  std::unique_ptr<Compiler> get_parent() { return std::move(parent); }
+
+  void set_function_arity(size_t new_arity) {
+    current_function->arity = new_arity;
+  }
+
 private:
   std::vector<Local> locals;
   size_t scope_depth;
   std::unique_ptr<ObjFunction> current_function;
   bool is_top_level;
+  std::unique_ptr<Compiler> parent;
 };
 
 class Parser {
 public:
   Parser(std::unique_ptr<scanner::Scanner> scanner,
-         std::unique_ptr<ObjFunction> fnptr, bool is_top_level,
-         StringMap& string_map);
+         std::unique_ptr<ObjFunction> fnptr, StringMap& string_map);
   void parse();
   std::unique_ptr<ObjFunction> finalise_function();
 
@@ -88,7 +99,7 @@ private:
   scanner::Token previous;
   std::optional<std::pair<std::string, size_t>> errmsg;
   StringMap& string_map;
-  Compiler compiler;
+  std::unique_ptr<Compiler> compiler;
 
   // Interact with scanner
   void advance();
@@ -107,8 +118,10 @@ private:
   // Parsing methods
   void parse_precedence(Precedence precedence);
   void block();
+  void function();
   void declaration();
   void var_declaration();
+  void fun_declaration();
   void statement();
   void print_statement();
   void if_statement();
@@ -116,6 +129,7 @@ private:
   void for_statement();
   void expression_statement();
   void expression();
+  void call(bool can_assign);
   void number(bool can_assign);
   void grouping(bool can_assign);
   void unary(bool can_assign);
@@ -125,13 +139,14 @@ private:
   void string(bool can_assign);
   void variable(bool can_assign);
   void literal(bool can_assign);
+  void define_variable(std::string_view var_name);
   void define_global_variable(std::string_view name);
   void named_variable(std::string_view lexeme, bool can_assign);
 
   // Interact with chunk
-  void emit(uint8_t byte) { compiler.emit(byte, previous.line); }
+  void emit(uint8_t byte) { compiler->emit(byte, previous.line); }
   void emit(lox::OpCode opcode) { emit(static_cast<uint8_t>(opcode)); }
-  size_t get_chunk_size() const { return compiler.get_chunk_size(); }
+  size_t get_chunk_size() const { return compiler->get_chunk_size(); }
   // Pushes to the constant table and returns the index of the constant just
   // added.
   size_t make_constant(lox::Value value);
@@ -140,6 +155,7 @@ private:
   size_t emit_constant(lox::Value value);
   size_t emit_jump(lox::OpCode jump_opcode);
   void patch_jump(size_t jump_byte, size_t jump_offset);
+  void emit_call(size_t arg_count);
 
   using ParserMemFn = void (Parser::*)(bool can_assign);
   struct Rule {
@@ -152,7 +168,7 @@ private:
     using scanner::TokenType;
     switch (t) {
     case TokenType::LEFT_PAREN:
-      return Rule{&Parser::grouping, nullptr, Precedence::NONE};
+      return Rule{&Parser::grouping, &Parser::call, Precedence::CALL};
     case TokenType::RIGHT_PAREN:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::LEFT_BRACE:

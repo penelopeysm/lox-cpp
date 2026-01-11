@@ -1,6 +1,5 @@
 #include "vm.hpp"
 #include "chunk.hpp"
-#include "compiler.hpp"
 #include "stringmap.hpp"
 
 #include <iostream>
@@ -24,32 +23,39 @@ lox::InterpretResult interpret(std::string_view source) {
   Chunk chunk;
   // Create a map for string interning
   StringMap string_map;
-  // Create a top-level ObjFunction.
-  auto top_level_fn = std::make_unique<ObjFunction>("#toplevel#", 0);
-  bool is_top_level = true;
-  Parser parser(std::move(scanner), std::move(top_level_fn), is_top_level,
-                string_map);
-  parser.parse();
-
-  std::unique_ptr<ObjFunction> fnptr = parser.finalise_function();
-  if (fnptr == nullptr) {
-    // The parser will already have grumbled, so we don't need to repeat that.
-    return InterpretResult::COMPILE_ERROR;
-  }
-  // TODO: UGLYYYY! Converting unique_ptr to shared_ptr because that's what
-  // the stack can hold. This is accomplished using std::move which can turn
-  // unique into shared.
-  VM vm(std::move(fnptr), string_map);
-  return vm.run();
+  // Create a top-level ObjFunction and invoke it.
+  VM vm(std::move(scanner), string_map);
+  return vm.invoke_toplevel();
 }
 
-VM::VM(std::shared_ptr<ObjFunction> fn, StringMap& interned_strings)
-    : call_frame_ptr(0), stack_ptr(0), interned_strings(interned_strings) {
+VM::VM(std::unique_ptr<scanner::Scanner> scanner, StringMap& interned_strings)
+    : call_frame_ptr(0), stack_ptr(0), interned_strings(interned_strings),
+      parser() {
   call_frames.reserve(MAX_CALL_FRAMES);
-  call_frames.push_back(CallFrame(fn, 0, 0));
   stack.reserve(MAX_STACK_SIZE);
-  // This is where we use stack slot 0, which the compiler reserves for us
-  stack_push(fn);
+  auto top_level_fn = std::make_unique<ObjFunction>("#toplevel#", 0);
+  parser = std::make_unique<Parser>(std::move(scanner), std::move(top_level_fn),
+                                    interned_strings);
+}
+
+lox::InterpretResult VM::invoke_toplevel() {
+  // parse the top-level source code
+  parser->parse();
+  std::unique_ptr<ObjFunction> top_level_fn_unique =
+      parser->finalise_function();
+  // Earlier we reserved stack slot zero for the VM. We have to mirror that
+  // here. Annoyingly, at this point we need to convert the unique_ptr to
+  // a shared_ptr before we can run it
+  std::shared_ptr<ObjFunction> top_level_fn = std::move(top_level_fn_unique);
+  stack_push(top_level_fn);
+  call(top_level_fn, 0);
+  // if finalise_function returned nullptr, there was a compile error
+  if (top_level_fn == nullptr) {
+    // Parser will already have grumbled, no need to do it again here.
+    return InterpretResult::COMPILE_ERROR;
+  } else {
+    return run();
+  }
 }
 
 lox::Value VM::read_constant() {
@@ -129,6 +135,24 @@ void VM::error(const std::string& message) {
   // Use the chunk's debuginfo to figure out which line the error is at.
   size_t line = current_frame().get_current_debuginfo_line();
   throw std::runtime_error("line " + std::to_string(line) + ": " + message);
+}
+
+// Create a new call frame and update the VM's internal state so that we are
+// in that new frame. This function doesn't actually RUN the code in the
+// function; that's left to the VM loop!
+void VM::call(std::shared_ptr<ObjFunction> callee, size_t arg_count) {
+  if (call_frame_ptr + 1 >= MAX_CALL_FRAMES) {
+    throw std::runtime_error("stack overflow: too many nested function calls");
+  }
+  // Check arity
+  if (callee->arity != arg_count) {
+    throw std::runtime_error("expected " + std::to_string(callee->arity) +
+                             " arguments but got " + std::to_string(arg_count));
+  }
+  size_t stack_start = stack_ptr - arg_count - 1;
+  CallFrame new_frame(callee, 0, stack_start);
+  call_frames.push_back(new_frame);
+  call_frame_ptr++;
 }
 
 VM& VM::handle_binary_op(const std::function<lox::Value(double, double)>& op) {
@@ -233,12 +257,11 @@ InterpretResult VM::run() {
         // we've stored it.)
         lox::Value var_value = stack_peek();
         // Then we can define the global variable by adding it to our map.
-        size_t global_index = get_chunk().push_constant(var_value);
         // NOTE: operator[] will create a new entry if the key doesn't exist
         // yet. It returns a reference to the value, which can then be
         // assigned to. So this doesn't desugar to something like setindex! in
         // Julia, it is just a composition of operator[] and assignment.
-        globals_indices[var_name] = global_index;
+        globals[var_name] = var_value;
         stack_pop(); // now pop the value
         break;
       }
@@ -246,28 +269,24 @@ InterpretResult VM::run() {
         std::string var_name = read_global_name();
         // Now that we have the name of the variable, we can look it up in our
         // map
-        auto it = globals_indices.find(var_name);
-        if (it == globals_indices.end()) {
+        auto it = globals.find(var_name);
+        if (it == globals.end()) {
           error("undefined variable '" + var_name + "'");
         }
-        size_t global_index = it->second;
-        lox::Value var_value = get_chunk().constant_at(global_index);
-        stack_push(var_value);
+        stack_push(it->second);
         break;
       }
       case OpCode::SET_GLOBAL: {
         std::string var_name = read_global_name();
-        auto it = globals_indices.find(var_name);
-        if (it == globals_indices.end()) {
+        auto it = globals.find(var_name);
+        if (it == globals.end()) {
           error("undefined variable '" + var_name + "'");
         } else {
           // Update the value in the chunk's constant table.
           // Peek not pop because assignment expressions return the assigned
           // value and it might be used again later!
           lox::Value var_value = stack_peek();
-          size_t new_global_index = get_chunk().push_constant(var_value);
-          // Update the mapping to point to the new constant index
-          globals_indices[var_name] = new_global_index;
+          globals[var_name] = var_value;
         }
         break;
       }
@@ -313,9 +332,23 @@ InterpretResult VM::run() {
         current_frame().shift_ip(jump_offset);
         break;
       }
-      case OpCode::LOOP: {
-        throw std::runtime_error("unimplemented: LOOP opcode");
-        break;
+      case OpCode::CALL: {
+        // This is the number of arguments pushed to the stack.
+        uint8_t nargs = read_byte();
+        // The function pointer should have been pushed to the stack before
+        // the arguments.
+        auto maybe_objptr = stack[stack_ptr - 1 - nargs];
+        if (!std::holds_alternative<std::shared_ptr<Obj>>(maybe_objptr)) {
+          throw std::runtime_error("can only call functions");
+        }
+        auto maybe_fnptr = std::get<std::shared_ptr<lox::Obj>>(maybe_objptr);
+        auto fnptr = std::dynamic_pointer_cast<ObjFunction>(maybe_fnptr);
+        if (fnptr == nullptr) {
+          throw std::runtime_error("can only call functions");
+        } else {
+          call(fnptr, nargs);
+          // TODO pop the call frame
+        }
       }
       }
     }

@@ -32,7 +32,7 @@ enum class OpCode {
   GET_LOCAL,
   JUMP_IF_FALSE,
   JUMP,
-  LOOP,
+  CALL,
   // more to come
 };
 

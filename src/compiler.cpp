@@ -18,8 +18,10 @@ lox::scanner::Token SENTINEL_EOF =
 std::pair<uint8_t, uint8_t> split_jump_offset(int16_t offset) {
   uint8_t high_byte = static_cast<uint8_t>((offset >> 8) & 0xff);
   uint8_t low_byte = static_cast<uint8_t>(offset & 0xff);
-  return std::pair(high_byte, low_byte);
+  return {high_byte, low_byte};
 }
+
+constexpr int16_t MAX_ARITY = 255;
 } // namespace
 
 namespace lox {
@@ -76,11 +78,10 @@ using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
 Parser::Parser(std::unique_ptr<Scanner> scanner,
-               std::unique_ptr<ObjFunction> fnptr, bool is_top_level,
-               StringMap& string_map)
+               std::unique_ptr<ObjFunction> fnptr, StringMap& string_map)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), string_map(string_map),
-      compiler(std::move(fnptr), is_top_level) {}
+      compiler(std::make_unique<Compiler>(std::move(fnptr))) {}
 
 void Parser::advance() {
   previous = current;
@@ -90,6 +91,90 @@ void Parser::advance() {
   }
 }
 
+void Parser::function() {
+  // Parse the name and arity of the function: that will let us create the
+  // ObjFunction object
+  consume_or_error(TokenType::IDENTIFIER, "expected function name");
+  std::string_view fn_name = previous.lexeme;
+  consume_or_error(TokenType::LEFT_PAREN, "expected '(' after function name");
+  // Create the function object and a new compiler for it. The arity will be
+  // updated on the fly later when we parse the function parameters.
+  int arity = 0;
+  // TODO: This copies the string. Do we need to?
+  auto new_fnptr = std::make_unique<ObjFunction>(fn_name, arity);
+  auto new_compiler =
+      std::make_unique<Compiler>(std::move(new_fnptr), std::move(compiler));
+  compiler = std::move(new_compiler);
+  compiler->begin_scope();
+  // Parse parameters (if there are any).
+  if (!consume_if(TokenType::RIGHT_PAREN)) {
+    while (true) {
+      arity++;
+      if (arity > MAX_ARITY) {
+        error("cannot have more than 255 parameters", previous.line);
+      }
+      consume_or_error(TokenType::IDENTIFIER, "expected parameter name");
+      std::string_view param_name = previous.lexeme;
+      define_variable(param_name);
+      if (consume_if(TokenType::COMMA)) {
+        // next parameter
+        continue;
+      } else if (consume_if(TokenType::RIGHT_PAREN)) {
+        // no more parameters
+        break;
+      } else {
+        // syntax error
+        error("expected ',' or ')' after parameter", previous.line);
+        break;
+      }
+    }
+  }
+  compiler->set_function_arity(arity);
+
+  // Parse function body
+  consume_or_error(TokenType::LEFT_BRACE, "expected '{' before function body");
+  block();
+  auto final_fnptr = finalise_function();
+  if (final_fnptr == nullptr) {
+    return;
+  } else {
+    // Need to convert unique_ptr to shared_ptr
+    emit_constant(std::move(final_fnptr));
+    define_variable(fn_name);
+  }
+}
+
+void Parser::call(bool) {
+  // We've already consumed the '(' token.
+  size_t arg_count = 0;
+  // The parsing code here is very similar to the parameter parsing code in
+  // function(). Because function parameters are just local variables, we have
+  // already set aside the space for them on the stack when we defined the
+  // function (inside compiler->declare_local). So here we just need to push the
+  // arguments onto the stack, which is what expression() does. Simple! Ish.
+  if (!consume_if(TokenType::RIGHT_PAREN)) {
+    while (true) {
+      arg_count++;
+      if (arg_count > MAX_ARITY) {
+        error("cannot have more than 255 arguments", previous.line);
+      }
+      expression();
+      if (consume_if(TokenType::COMMA)) {
+        // next argument
+        continue;
+      } else if (consume_if(TokenType::RIGHT_PAREN)) {
+        // no more arguments
+        break;
+      } else {
+        // syntax error
+        error("expected ',' or ')' after argument", previous.line);
+        break;
+      }
+    }
+  }
+  emit_call(arg_count);
+}
+
 std::unique_ptr<ObjFunction> Parser::finalise_function() {
   if (has_error()) {
     std::cerr << "[line " << errmsg->second << "] Error: " << errmsg->first
@@ -97,7 +182,11 @@ std::unique_ptr<ObjFunction> Parser::finalise_function() {
     return nullptr;
   } else {
     emit(lox::OpCode::RETURN);
-    return compiler.extract_current_function();
+    // Get the function object from the current compiler, and pop it off the
+    // compiler stack.
+    auto fnptr = compiler->extract_current_function();
+    compiler = compiler->get_parent();
+    return fnptr;
   }
 }
 
@@ -126,7 +215,7 @@ void Parser::error(std::string_view message, size_t line) {
 }
 
 size_t Parser::make_constant(lox::Value value) {
-  size_t constant_index = compiler.push_constant(value);
+  size_t constant_index = compiler->push_constant(value);
   if (constant_index > UINT8_MAX) {
     error("Too many constants in one chunk.", previous.line);
   }
@@ -138,6 +227,11 @@ size_t Parser::emit_constant(lox::Value value) {
   emit(lox::OpCode::CONSTANT);
   emit(static_cast<uint8_t>(constant_index));
   return constant_index;
+}
+
+void Parser::emit_call(size_t arg_count) {
+  emit(lox::OpCode::CALL);
+  emit(static_cast<uint8_t>(arg_count));
 }
 
 size_t Parser::emit_jump(lox::OpCode jump_opcode) {
@@ -163,7 +257,7 @@ void Parser::patch_jump(size_t jump_byte, size_t target_byte) {
   auto [high_byte, low_byte] =
       split_jump_offset(static_cast<int16_t>(jump_offset));
   // Patch the two bytes into the chunk
-  compiler.patch_at_offset(jump_byte, high_byte, low_byte);
+  compiler->patch_at_offset(jump_byte, high_byte, low_byte);
 }
 
 void Parser::parse() {
@@ -221,6 +315,8 @@ void Parser::parse_precedence(Precedence precedence) {
 void Parser::declaration() {
   if (consume_if(TokenType::VAR)) {
     var_declaration();
+  } else if (consume_if(TokenType::FUN)) {
+    function();
   } else {
     statement();
   }
@@ -230,8 +326,6 @@ void Parser::var_declaration() {
   // Parse identifier
   consume_or_error(TokenType::IDENTIFIER, "expected variable name");
   std::string_view var_name = previous.lexeme;
-  // Determine whether it's a global or local variable
-  bool is_local = compiler.get_scope_depth() > 0;
   // Initializer. These instructions, when executed, will add the initial value
   // to the top of the stack.
   if (consume_if(TokenType::EQUAL)) {
@@ -240,14 +334,26 @@ void Parser::var_declaration() {
     // if no initializer provided, initialize to nil
     emit_constant(std::monostate());
   }
+  define_variable(var_name);
+  consume_or_error(TokenType::SEMICOLON,
+                   "expected ';' after variable declaration");
+}
+
+void Parser::define_variable(std::string_view var_name) {
+  // Determine whether it's a global or local variable
+  bool is_local = compiler->get_scope_depth() > 0;
   // For a local variable, we just need to define it in the compiler.
   if (is_local) {
-    compiler.declare_local(var_name);
+    bool has_duplicate = compiler->declare_local(var_name);
+    if (has_duplicate) {
+      error("variable '" + std::string(var_name) +
+                "' already declared in this scope",
+            previous.line);
+      return;
+    }
   } else {
     define_global_variable(var_name);
   }
-  consume_or_error(TokenType::SEMICOLON,
-                   "expected ';' after variable declaration");
 }
 
 void Parser::define_global_variable(std::string_view name) {
@@ -266,7 +372,7 @@ void Parser::variable(bool can_assign) {
 }
 
 void Parser::named_variable(std::string_view lexeme, bool can_assign) {
-  int local_index = compiler.resolve_local(lexeme);
+  int local_index = compiler->resolve_local(lexeme);
   if (local_index == -1) {
     // Not found, so it's a global variable
     std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
@@ -318,9 +424,9 @@ void Parser::statement() {
   } else if (consume_if(TokenType::FOR)) {
     for_statement();
   } else if (consume_if(TokenType::LEFT_BRACE)) {
-    compiler.begin_scope();
+    compiler->begin_scope();
     block();
-    size_t num_popped = compiler.end_scope();
+    size_t num_popped = compiler->end_scope();
     for (size_t i = 0; i < num_popped; ++i) {
       emit(lox::OpCode::POP);
     }
@@ -376,7 +482,7 @@ void Parser::while_statement() {
 
 void Parser::for_statement() {
   consume_or_error(TokenType::LEFT_PAREN, "expected '(' after 'for'");
-  compiler.begin_scope();
+  compiler->begin_scope();
   // Initialiser. Note that all three branches will eat the semicolon at the
   // end.
   if (consume_if(TokenType::SEMICOLON)) {
@@ -426,7 +532,7 @@ void Parser::for_statement() {
   }
   emit(lox::OpCode::POP);
 
-  size_t npops = compiler.end_scope();
+  size_t npops = compiler->end_scope();
   for (size_t i = 0; i < npops; ++i) {
     emit(lox::OpCode::POP);
   }

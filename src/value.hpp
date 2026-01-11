@@ -52,7 +52,7 @@ public:
 class ObjFunction : public Obj {
 public:
   std::string name;
-  int arity;
+  size_t arity;
   Chunk chunk;
 
   ObjFunction(std::string_view name, int arity)

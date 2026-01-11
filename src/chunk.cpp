@@ -247,9 +247,10 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     os << "JUMP " << jump_offset << "\n";
     return offset + 3;
   }
-  case OpCode::LOOP: {
-    throw std::runtime_error(
-        "loxc: disassemble: LOOP opcode not yet implemented");
+  case OpCode::CALL: {
+    uint8_t nargs = code[offset + 1];
+    os << "CALL " << +nargs << "\n";
+    return offset + 2;
   }
   }
 }

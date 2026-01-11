@@ -1,5 +1,6 @@
 #pragma once
 
+#include "compiler.hpp"
 #include "value.hpp"
 #include <cstddef>
 #include <functional>
@@ -35,9 +36,10 @@ public:
 
 class VM {
 public:
-  VM(std::shared_ptr<ObjFunction> fn, StringMap& interned_strings);
+  VM(std::unique_ptr<scanner::Scanner> scanner, StringMap& interned_strings);
   InterpretResult run();
   std::ostream& stack_dump(std::ostream& out) const;
+  InterpretResult invoke_toplevel();
 
 private:
   std::vector<CallFrame> call_frames;
@@ -47,11 +49,11 @@ private:
   std::vector<lox::Value> stack;
   size_t stack_ptr;
   StringMap& interned_strings;
-  // maps from the name of a global variable to its index in the chunk's
-  // constants table
-  std::unordered_map<std::string, size_t> globals_indices;
+  // maps from the name of a global variable to its value
+  std::unordered_map<std::string, lox::Value> globals;
+  std::unique_ptr<Parser> parser;
 
-  CallFrame& current_frame() { return call_frames[call_frame_ptr]; }
+  CallFrame& current_frame() { return call_frames[call_frame_ptr - 1]; }
   Chunk& get_chunk() { return current_frame().function->chunk; }
 
   lox::Value get_local_variable(size_t local_index) {
@@ -83,6 +85,8 @@ private:
   void error(const std::string& message);
 
   VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
+
+  void call(std::shared_ptr<ObjFunction> callee, size_t arg_count);
 
   // Move the stack pointer back to the base
   VM& stack_reset();
