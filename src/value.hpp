@@ -1,20 +1,17 @@
 #pragma once
 
+#include "chunk.hpp"
+#include "value_def.hpp"
 #include <iostream>
 #include <memory>
 #include <ostream>
-#include <variant>
 
 namespace lox {
 
 enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
 
 // Forward declarations
-class Obj;
 class StringMap; // Actually in stringmap.hpp
-
-// NOTE: `using` is similar to `typedef`, but more powerful in C++
-using Value = std::variant<std::monostate, bool, double, std::shared_ptr<Obj>>;
 
 class Obj {
 public:
@@ -34,7 +31,8 @@ public:
   // NOTE: the (= 0) makes this a 'pure virtual' function, meaning that derived
   // classes must implement this function.
   virtual std::string to_repr() const = 0;
-  virtual Value add(const std::shared_ptr<Obj>& other, StringMap& string_map) = 0;
+  virtual Value add(const std::shared_ptr<Obj>& other,
+                    StringMap& string_map) = 0;
 };
 
 class ObjString : public Obj {
@@ -49,6 +47,21 @@ public:
 #endif
   std::string to_repr() const override { return "\"" + value + "\""; }
   Value add(const std::shared_ptr<Obj>& other, StringMap& string_map) override;
+};
+
+class ObjFunction : public Obj {
+public:
+  std::string name;
+  int arity;
+  Chunk chunk;
+
+  ObjFunction(std::string_view name, int arity)
+      : name(std::string(name)), arity(arity), chunk() {}
+  std::string to_repr() const override { return "<fn " + name + ">"; }
+  // NOTE: If you aren't using the parameters, you can just omit their names!
+  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+    throw std::runtime_error("loxc: add: cannot add function objects");
+  }
 };
 
 bool is_truthy(const Value& value);

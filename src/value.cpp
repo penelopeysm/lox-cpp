@@ -74,8 +74,9 @@ Value add(const Value& a, const Value& b, StringMap& string_map) {
     auto aptr = std::get<std::shared_ptr<Obj>>(a);
     auto bptr = std::get<std::shared_ptr<Obj>>(b);
     return aptr->add(bptr, string_map);
+  } else {
+    throw std::runtime_error("operands to `+` must be two numbers or two strings");
   }
-  return false;
 }
 
 } // namespace lox

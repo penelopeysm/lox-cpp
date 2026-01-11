@@ -75,57 +75,58 @@ int Compiler::resolve_local(std::string_view name) {
 using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
-Parser::Parser(std::unique_ptr<Scanner> scanner, Chunk chunk,
+Parser::Parser(std::unique_ptr<Scanner> scanner,
+               std::unique_ptr<ObjFunction> fnptr, bool is_top_level,
                StringMap& string_map)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), string_map(string_map),
-      chunk(std::move(chunk)), compiler() {}
+      compiler(std::move(fnptr), is_top_level) {}
 
 void Parser::advance() {
   previous = current;
   current = scanner->scan_token();
-  // std::cerr << to_string(current) << "\n";
   if (current.type == TokenType::ERROR) {
     error(current.lexeme, current.line);
+  }
+}
+
+std::unique_ptr<ObjFunction> Parser::finalise_function() {
+  if (has_error()) {
+    std::cerr << "[line " << errmsg->second << "] Error: " << errmsg->first
+              << "\n";
+    return nullptr;
+  } else {
+    emit(lox::OpCode::RETURN);
+    return compiler.extract_current_function();
   }
 }
 
 // This will consume `parser.current` if it matches `type` (and that means that
 // the consumed token will be stored in `parser.previous`!).
 bool Parser::consume_or_error(TokenType type, std::string_view error_message) {
-  if (current.type == type) {
+  bool found = current.type == type;
+  if (found) {
     advance();
-    return true;
   } else {
     error(error_message, current.line);
-    return false;
   }
+  return found;
 }
 
 bool Parser::consume_if(TokenType type) {
-  if (current.type == type) {
+  bool found = current.type == type;
+  if (found) {
     advance();
-    return true;
-  } else {
-    return false;
   }
+  return found;
 }
 
 void Parser::error(std::string_view message, size_t line) {
   errmsg = std::pair(std::string(message), line);
 }
 
-void Parser::report_error() {
-  if (errmsg.has_value()) {
-    std::cerr << "[line " << errmsg->second << "] Error: " << errmsg->first
-              << "\n";
-  } else {
-    throw std::runtime_error("unreachable: no error to report");
-  }
-}
-
 size_t Parser::make_constant(lox::Value value) {
-  size_t constant_index = chunk.push_constant(value);
+  size_t constant_index = compiler.push_constant(value);
   if (constant_index > UINT8_MAX) {
     error("Too many constants in one chunk.", previous.line);
   }
@@ -145,7 +146,7 @@ size_t Parser::emit_jump(lox::OpCode jump_opcode) {
   emit(0xff);
   emit(0xff);
   // Return the index of the first byte of the offset
-  return chunk.size() - 2;
+  return get_chunk_size() - 2;
 }
 
 void Parser::patch_jump(size_t jump_byte, size_t target_byte) {
@@ -162,8 +163,7 @@ void Parser::patch_jump(size_t jump_byte, size_t target_byte) {
   auto [high_byte, low_byte] =
       split_jump_offset(static_cast<int16_t>(jump_offset));
   // Patch the two bytes into the chunk
-  chunk.patch_at_offset(jump_byte, high_byte)
-      .patch_at_offset(jump_byte + 1, low_byte);
+  compiler.patch_at_offset(jump_byte, high_byte, low_byte);
 }
 
 void Parser::parse() {
@@ -348,18 +348,18 @@ void Parser::if_statement() {
   // When falling through the 'if' branch, we need to jump over the else
   // branch, so we emit an unconditional jump here.
   size_t else_jump_byte = emit_jump(lox::OpCode::JUMP);
-  patch_jump(jump_byte, chunk.size());
+  patch_jump(jump_byte, get_chunk_size());
   // Pop the condition value before we enter the else branch.
   emit(lox::OpCode::POP);
   if (consume_if(TokenType::ELSE)) {
     statement();
   }
-  patch_jump(else_jump_byte, chunk.size());
+  patch_jump(else_jump_byte, get_chunk_size());
 }
 
 void Parser::while_statement() {
   consume_or_error(TokenType::LEFT_PAREN, "expected '(' after 'while'");
-  size_t loop_start = chunk.size();
+  size_t loop_start = get_chunk_size();
   expression();
   consume_or_error(TokenType::RIGHT_PAREN,
                    "expected ')' after while condition");
@@ -369,7 +369,7 @@ void Parser::while_statement() {
   statement();
   size_t loop_jump = emit_jump(lox::OpCode::JUMP);
   patch_jump(loop_jump, loop_start);
-  patch_jump(exit_jump, chunk.size());
+  patch_jump(exit_jump, get_chunk_size());
   // Pop the condition value when exiting the loop.
   emit(lox::OpCode::POP);
 }
@@ -387,7 +387,7 @@ void Parser::for_statement() {
     expression_statement();
   }
   // Condition
-  size_t cond_start = chunk.size();
+  size_t cond_start = get_chunk_size();
   bool has_condition = !consume_if(TokenType::SEMICOLON);
 
   size_t exit_jump = 0;
@@ -399,7 +399,7 @@ void Parser::for_statement() {
 
   size_t to_body_jump = emit_jump(lox::OpCode::JUMP);
   // Increment
-  size_t increment_start = chunk.size();
+  size_t increment_start = get_chunk_size();
   if (consume_if(TokenType::RIGHT_PAREN)) {
     // No increment
   } else {
@@ -413,7 +413,7 @@ void Parser::for_statement() {
     patch_jump(to_cond_jump, cond_start);
   }
 
-  patch_jump(to_body_jump, chunk.size());
+  patch_jump(to_body_jump, get_chunk_size());
   if (has_condition) {
     // Pop the condition value before entering the loop body.
     emit(lox::OpCode::POP);
@@ -422,7 +422,7 @@ void Parser::for_statement() {
   size_t to_increment_jump = emit_jump(lox::OpCode::JUMP);
   patch_jump(to_increment_jump, increment_start);
   if (has_condition) {
-    patch_jump(exit_jump, chunk.size());
+    patch_jump(exit_jump, get_chunk_size());
   }
   emit(lox::OpCode::POP);
 
@@ -503,7 +503,7 @@ void Parser::and_operator(bool _) {
   emit(lox::OpCode::POP);
   parse_precedence(Precedence::AND);
   // If we do follow the jump, we can skip over all of that.
-  patch_jump(end_jump, chunk.size());
+  patch_jump(end_jump, get_chunk_size());
 }
 
 void Parser::or_operator(bool _) {
@@ -514,11 +514,11 @@ void Parser::or_operator(bool _) {
   // we can skip the right operand entirely.
   size_t jump_to_end = emit_jump(lox::OpCode::JUMP);
   // Patch the first jump to here, which is the start of the right operand.
-  patch_jump(jump_to_right_operand, chunk.size());
+  patch_jump(jump_to_right_operand, get_chunk_size());
   emit(lox::OpCode::POP);
   parse_precedence(Precedence::OR);
   // Patch the jump to the end to here, which is after the right operand.
-  patch_jump(jump_to_end, chunk.size());
+  patch_jump(jump_to_end, get_chunk_size());
 }
 
 void Parser::binary(bool _) {

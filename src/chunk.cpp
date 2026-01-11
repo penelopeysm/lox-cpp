@@ -254,23 +254,8 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   }
 }
 
-std::ostream& lox::Chunk::disassemble(std::ostream& os) const {
-  size_t nbytes = size();
-  os << "--- Disassembly of Chunk with " << nbytes << " bytes ---" << "\n";
-  size_t offset = 0;
-  while (offset < nbytes) {
-    offset = disassemble(os, offset);
-  }
-  // We SHOULD have printed all bytes, so this is a sanity check.
-  if (offset != nbytes) {
-    throw std::runtime_error(
-        "loxc: Disassembly error: did not consume all bytes");
-  }
-  return os;
-}
-
 std::ostream& lox::operator<<(std::ostream& os, const lox::Chunk& chunk) {
-  chunk.disassemble(os);
+  chunk.hex_dump(os);
   return os;
 }
 

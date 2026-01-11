@@ -1,8 +1,8 @@
 #pragma once
 
-#include "value.hpp"
-#include <cstdlib>
+#include "value_def.hpp"
 #include <cstdint>
+#include <cstdlib>
 #include <ostream>
 #include <vector>
 
@@ -60,7 +60,6 @@ public:
   size_t debuginfo_at(size_t bytecode_offset) const;
 
   std::ostream& hex_dump(std::ostream& os) const;
-  std::ostream& disassemble(std::ostream& os) const;
   // Disassemble a single instruction at the given offset, and return the new
   // offset.
   size_t disassemble(std::ostream& os, size_t offset) const;

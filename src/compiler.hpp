@@ -30,7 +30,15 @@ struct Local {
 
 class Compiler {
 public:
-  Compiler() : scope_depth(0) {}
+  Compiler(std::unique_ptr<ObjFunction> fnptr, bool is_top_level)
+      : scope_depth(0), current_function(std::move(fnptr)), is_top_level(is_top_level) {
+    // Reserve slot 0 of the stack for VM internal use. Note that this, on its
+    // own, will mess with the VM's state since this does not actually push to
+    // the stack at runtime. We have to 'balance' this out in the VM by pushing
+    // the pointer to the current function onto the stack before we start
+    // executing the chunk.
+    declare_local("");
+  }
   void begin_scope() { scope_depth++; }
   // Returns the number of locals removed from the locals list when exiting a
   // scope. Parser needs to know this so that it can emit POP instructions.
@@ -41,19 +49,38 @@ public:
   // local variable (e.g., duplicate variable name in the same scope).
   bool declare_local(std::string_view name);
 
+  size_t get_chunk_size() const {
+    return current_function->chunk.size();
+  }
+  std::unique_ptr<ObjFunction> extract_current_function() {
+    return std::move(current_function);
+  }
+  void emit(uint8_t byte, size_t line) {
+    current_function->chunk.write(byte, line);
+  }
+  // Returns the index of the constant just added
+  size_t push_constant(lox::Value value) {
+    return current_function->chunk.push_constant(value);
+  }
+  void patch_at_offset(size_t offset, uint8_t high_byte, uint8_t low_byte) {
+    current_function->chunk.patch_at_offset(offset, high_byte);
+    current_function->chunk.patch_at_offset(offset + 1, low_byte);
+  }
+
 private:
   std::vector<Local> locals;
   size_t scope_depth;
+  std::unique_ptr<ObjFunction> current_function;
+  bool is_top_level;
 };
 
 class Parser {
 public:
-  Parser(std::unique_ptr<scanner::Scanner> scanner, Chunk chunk,
+  Parser(std::unique_ptr<scanner::Scanner> scanner,
+         std::unique_ptr<ObjFunction> fnptr, bool is_top_level,
          StringMap& string_map);
   void parse();
-  Chunk get_chunk() const { return chunk; }
-  bool error_occurred() const { return errmsg.has_value(); }
-  void report_error();
+  std::unique_ptr<ObjFunction> finalise_function();
 
 private:
   std::unique_ptr<scanner::Scanner> scanner;
@@ -61,7 +88,6 @@ private:
   scanner::Token previous;
   std::optional<std::pair<std::string, size_t>> errmsg;
   StringMap& string_map;
-  Chunk chunk;
   Compiler compiler;
 
   // Interact with scanner
@@ -69,6 +95,11 @@ private:
   bool consume_or_error(scanner::TokenType type,
                         std::string_view error_message);
   bool consume_if(scanner::TokenType type);
+  // NOTE: the `const` annotation here means that the function does not modify
+  // any member variables of the Parser class. That allows us to have
+  // compile-time guarantees that calling this function won't change the state
+  // of the Parser, e.g. if we write const Parser p = ...; then we can still
+  // call p.error_occurred().
   bool is_at_end() const { return scanner->is_at_end(); }
   void error(std::string_view message, size_t line);
   bool has_error() const { return errmsg.has_value(); }
@@ -98,8 +129,9 @@ private:
   void named_variable(std::string_view lexeme, bool can_assign);
 
   // Interact with chunk
-  void emit(uint8_t byte) { chunk.write(byte, previous.line); }
+  void emit(uint8_t byte) { compiler.emit(byte, previous.line); }
   void emit(lox::OpCode opcode) { emit(static_cast<uint8_t>(opcode)); }
+  size_t get_chunk_size() const { return compiler.get_chunk_size(); }
   // Pushes to the constant table and returns the index of the constant just
   // added.
   size_t make_constant(lox::Value value);
