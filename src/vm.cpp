@@ -2,8 +2,10 @@
 #include "chunk.hpp"
 #include "stringmap.hpp"
 
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 namespace {
 int16_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
@@ -14,6 +16,17 @@ constexpr size_t MAX_STACK_SIZE = 64 * UINT8_MAX;
 
 lox::Value clock_native(size_t, const lox::Value*) {
   return static_cast<double>(std::clock()) / CLOCKS_PER_SEC;
+}
+lox::Value sleep_native(size_t, const lox::Value* args) {
+  if (!std::holds_alternative<double>(args[0])) {
+    throw std::runtime_error("sleep expects one numeric argument");
+  }
+  double seconds = std::get<double>(args[0]);
+  if (seconds < 0) {
+    throw std::runtime_error("sleep duration must be non-negative");
+  }
+  std::this_thread::sleep_for(std::chrono::duration<double>(seconds));
+  return lox::Value{}; // return nil
 }
 
 } // namespace
@@ -31,6 +44,7 @@ lox::InterpretResult interpret(std::string_view source) {
   // Create a top-level ObjFunction and invoke it.
   VM vm(std::move(scanner), string_map);
   vm.define_native("clock", 0, clock_native);
+  vm.define_native("sleep", 1, sleep_native);
   return vm.invoke_toplevel();
 }
 
