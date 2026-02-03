@@ -161,7 +161,7 @@ void VM::error(const std::string& message) {
 // in that new frame. This function doesn't actually RUN the code in the
 // function; that's left to the VM loop!
 void VM::call(std::shared_ptr<ObjFunction> callee, size_t arg_count) {
-  if (call_frame_ptr + 1 >= MAX_CALL_FRAMES) {
+  if (call_frame_ptr >= MAX_CALL_FRAMES) {
     throw std::runtime_error("stack overflow: too many nested function calls");
   }
   // Check arity
@@ -171,8 +171,13 @@ void VM::call(std::shared_ptr<ObjFunction> callee, size_t arg_count) {
   }
   size_t stack_start = stack_ptr - arg_count - 1;
   CallFrame new_frame(callee, 0, stack_start);
+  bool is_first_frame = call_frames.empty();
   call_frames.push_back(new_frame);
-  call_frame_ptr++;
+  if (!is_first_frame) {
+    // For the first (toplevel) frame, we already have call_frame_ptr at 0,
+    // so we don't need to increment it.
+    call_frame_ptr++;
+  }
 }
 
 VM& VM::define_native(
@@ -387,8 +392,8 @@ InterpretResult VM::run() {
         lox::Value retval = stack_pop();
         // std::cerr << "returning " << retval << "\n";
         // Pop the current call frame.
-        if (call_frame_ptr == 1) {
-          // We're back at the top level, so we're done executing the entire
+        if (call_frame_ptr == 0) {
+          // Returned from the top level, so we're done executing the entire
           // programme. Pop the top level function off the stack and finish.
           stack_pop();
           return InterpretResult::OK;

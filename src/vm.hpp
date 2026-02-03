@@ -45,7 +45,6 @@ public:
 
 private:
   std::vector<CallFrame> call_frames;
-  // Annoyingly, this is one-indexed :(.
   size_t call_frame_ptr;
   // NOTE: We use std::vector here instead of std::stack because the latter does
   // not provide random access (you can only access the top element).
@@ -57,7 +56,7 @@ private:
   std::unordered_map<std::string, lox::Value> globals;
   std::unique_ptr<Parser> parser;
 
-  CallFrame& current_frame() { return call_frames[call_frame_ptr - 1]; }
+  CallFrame& current_frame() { return call_frames[call_frame_ptr]; }
   Chunk& get_chunk() { return current_frame().function->chunk; }
 
   lox::Value get_local_variable(size_t local_index) {
