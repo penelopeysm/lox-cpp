@@ -33,6 +33,7 @@ enum class OpCode {
   JUMP_IF_FALSE,
   JUMP,
   CALL,
+  CLOSURE,
   // more to come
 };
 

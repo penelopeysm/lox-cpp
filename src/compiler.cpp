@@ -135,11 +135,14 @@ void Parser::function() {
   consume_or_error(TokenType::LEFT_BRACE, "expected '{' before function body");
   block();
   auto final_fnptr = finalise_function();
+  // can be nullptr if there was a compile error
   if (final_fnptr == nullptr) {
     return;
   } else {
     // Need to convert unique_ptr to shared_ptr
-    emit_constant(std::move(final_fnptr));
+    size_t constant_index = make_constant(std::move(final_fnptr));
+    emit(lox::OpCode::CLOSURE);
+    emit(static_cast<uint8_t>(constant_index));
     define_variable(fn_name);
   }
 }

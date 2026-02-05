@@ -1,4 +1,17 @@
-var s = 0;
-for (var i = 0; i < 300000; i = i + 1) {
-    s = s + 1;
+fun f() {
+   print "outer";
+   return 1;
 }
+
+var x = f();
+print x;
+
+// var x = "global";
+// fun outer() {
+//   var x = "outer";
+//   fun inner() {
+//     print x;
+//   }
+//   inner();
+// }
+// outer();

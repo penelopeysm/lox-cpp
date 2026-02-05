@@ -67,10 +67,12 @@ lox::InterpretResult VM::invoke_toplevel() {
   // here. Annoyingly, at this point we need to convert the unique_ptr to
   // a shared_ptr before we can run it
   std::shared_ptr<ObjFunction> top_level_fn = std::move(top_level_fn_unique);
-  stack_push(top_level_fn);
-  call(top_level_fn, 0);
+  std::shared_ptr<ObjClosure> top_level_closure =
+      std::make_shared<ObjClosure>(top_level_fn);
+  stack_push(top_level_closure);
+  call(top_level_closure, 0);
   // if finalise_function returned nullptr, there was a compile error
-  if (top_level_fn == nullptr) {
+  if (top_level_closure == nullptr) {
     // Parser will already have grumbled, no need to do it again here.
     return InterpretResult::COMPILE_ERROR;
   } else {
@@ -160,13 +162,14 @@ void VM::error(const std::string& message) {
 // Create a new call frame and update the VM's internal state so that we are
 // in that new frame. This function doesn't actually RUN the code in the
 // function; that's left to the VM loop!
-void VM::call(std::shared_ptr<ObjFunction> callee, size_t arg_count) {
+void VM::call(std::shared_ptr<ObjClosure> callee, size_t arg_count) {
   if (call_frame_ptr >= MAX_CALL_FRAMES) {
     throw std::runtime_error("stack overflow: too many nested function calls");
   }
   // Check arity
-  if (callee->arity != arg_count) {
-    throw std::runtime_error("expected " + std::to_string(callee->arity) +
+  if (callee->function->arity != arg_count) {
+    throw std::runtime_error("expected " +
+                             std::to_string(callee->function->arity) +
                              " arguments but got " + std::to_string(arg_count));
   }
   size_t stack_start = stack_ptr - arg_count - 1;
@@ -212,6 +215,23 @@ InterpretResult VM::run() {
       case OpCode::CONSTANT: {
         lox::Value c = read_constant();
         stack_push(c);
+        break;
+      }
+      case OpCode::CLOSURE: {
+        lox::Value c = read_constant();
+        if (!std::holds_alternative<std::shared_ptr<Obj>>(c)) {
+          throw std::runtime_error(
+              "CLOSURE instruction's operand is not an Obj");
+        }
+        std::shared_ptr<Obj> c_obj = std::get<std::shared_ptr<Obj>>(c);
+        std::shared_ptr<ObjFunction> c_fn =
+            std::dynamic_pointer_cast<ObjFunction>(c_obj);
+        if (c_fn == nullptr) {
+          throw std::runtime_error(
+              "CLOSURE instruction's operand is not an ObjFunction");
+        }
+        auto c_clos = std::make_shared<ObjClosure>(c_fn);
+        stack_push(c_clos);
         break;
       }
       case OpCode::NEGATE: {
@@ -366,16 +386,16 @@ InterpretResult VM::run() {
         // the arguments.
         auto maybe_objptr = stack[stack_ptr - 1 - nargs];
         if (!std::holds_alternative<std::shared_ptr<Obj>>(maybe_objptr)) {
-          throw std::runtime_error("can only call functions");
+          throw std::runtime_error("objptr was not a pointer to Obj");
         }
-        auto maybe_fnptr = std::get<std::shared_ptr<lox::Obj>>(maybe_objptr);
-        auto fnptr = std::dynamic_pointer_cast<ObjFunction>(maybe_fnptr);
-        if (!(fnptr == nullptr)) {
-          call(fnptr, nargs);
+        auto maybe_closptr = std::get<std::shared_ptr<lox::Obj>>(maybe_objptr);
+        auto closptr = std::dynamic_pointer_cast<ObjClosure>(maybe_closptr);
+        if (closptr != nullptr) {
+          call(closptr, nargs);
         } else {
           auto native_fnptr =
-              std::dynamic_pointer_cast<ObjNativeFunction>(maybe_fnptr);
-          if (!(native_fnptr == nullptr)) {
+              std::dynamic_pointer_cast<ObjNativeFunction>(maybe_closptr);
+          if (native_fnptr != nullptr) {
             lox::Value retval =
                 native_fnptr->call(nargs, &stack[stack_ptr - nargs]);
             // Pop the function and its arguments off the stack.
@@ -383,7 +403,7 @@ InterpretResult VM::run() {
             // Push the return value onto the stack.
             stack_push(retval);
           } else {
-            throw std::runtime_error("can only call functions");
+            throw std::runtime_error("can only call closure or native function");
           }
         }
         break;
@@ -422,7 +442,7 @@ InterpretResult VM::run() {
               << e.what() << "\n";
     // Print call stack
     for (auto cf = call_frames.rbegin(); cf != call_frames.rend(); ++cf) {
-      std::string fname = cf->function->name;
+      std::string fname = cf->closure->function->name;
       std::size_t line = cf->get_current_debuginfo_line();
       std::cerr << " in line " << line << ", function " << fname << "\n";
     }

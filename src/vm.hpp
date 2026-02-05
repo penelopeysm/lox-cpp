@@ -15,22 +15,22 @@ InterpretResult interpret(std::string_view source);
 
 class CallFrame {
 public:
-  std::shared_ptr<ObjFunction> function;
+  std::shared_ptr<ObjClosure> closure;
   size_t ip;
   size_t stack_start;
 
-  CallFrame(std::shared_ptr<ObjFunction> fn, size_t ip, size_t stack_start)
-      : function(std::move(fn)), ip(ip), stack_start(stack_start) {}
-  uint8_t read_byte() { return function->chunk.at(ip++); }
+  CallFrame(std::shared_ptr<ObjClosure> clos, size_t ip, size_t stack_start)
+      : closure(std::move(clos)), ip(ip), stack_start(stack_start) {}
+  uint8_t read_byte() { return closure->function->chunk.at(ip++); }
   void shift_ip(int offset) { ip += offset; }
   size_t get_current_debuginfo_line() {
-    return function->chunk.debuginfo_at(ip - 1);
+    return closure->function->chunk.debuginfo_at(ip - 1);
   }
-  bool is_at_end() const { return ip >= function->chunk.size(); }
-  bool exactly_at_end() const { return ip == function->chunk.size(); }
+  bool is_at_end() const { return ip >= closure->function->chunk.size(); }
+  bool exactly_at_end() const { return ip == closure->function->chunk.size(); }
 
   void disassemble(std::ostream& out) const {
-    function->chunk.disassemble(out, ip);
+    closure->function->chunk.disassemble(out, ip);
   }
 };
 
@@ -57,7 +57,7 @@ private:
   std::unique_ptr<Parser> parser;
 
   CallFrame& current_frame() { return call_frames[call_frame_ptr]; }
-  Chunk& get_chunk() { return current_frame().function->chunk; }
+  Chunk& get_chunk() { return current_frame().closure->function->chunk; }
 
   lox::Value get_local_variable(size_t local_index) {
     // Because local_index is an index into the current function's locals,
@@ -89,7 +89,7 @@ private:
 
   VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
 
-  void call(std::shared_ptr<ObjFunction> callee, size_t arg_count);
+  void call(std::shared_ptr<ObjClosure> callee, size_t arg_count);
 
   // Move the stack pointer back to the base
   VM& stack_reset();

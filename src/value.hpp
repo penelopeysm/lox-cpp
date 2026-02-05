@@ -64,6 +64,18 @@ public:
   }
 };
 
+class ObjClosure : public Obj {
+public:
+  std::shared_ptr<ObjFunction> function;
+  
+  ObjClosure(std::shared_ptr<ObjFunction> function)
+      : function(std::move(function)) {}
+  std::string to_repr() const override { return "<clos " + function->name + ">"; }
+  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+    throw std::runtime_error("loxc: add: cannot add function objects");
+  }
+};
+
 class ObjNativeFunction : public Obj {
 public:
   ObjNativeFunction(

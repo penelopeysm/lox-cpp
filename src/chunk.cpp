@@ -152,6 +152,13 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     os << "CONSTANT " << constant << "\n";
     return offset + 2;
   }
+  case OpCode::CLOSURE: {
+    // get the ObjFunction from the constant table
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "CLOSURE " << constant << "\n";
+    return offset + 2;
+  }
   case OpCode::RETURN: {
     os << "RETURN\n";
     return offset + 1;
