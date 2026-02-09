@@ -34,6 +34,8 @@ enum class OpCode {
   JUMP,
   CALL,
   CLOSURE,
+  GET_UPVALUE,
+  SET_UPVALUE,
   // more to come
 };
 

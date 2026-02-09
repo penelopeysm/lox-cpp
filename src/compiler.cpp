@@ -65,13 +65,50 @@ bool Compiler::declare_local(std::string_view name) {
   return false;
 }
 
-int Compiler::resolve_local(std::string_view name) {
-  for (int i = static_cast<int>(locals.size()) - 1; i >= 0; --i) {
+std::optional<size_t> Compiler::resolve_local(std::string_view name) {
+  for (int i = locals.size() - 1; i >= 0; --i) {
     if (locals[i].name == name) {
       return i;
     }
   }
-  return -1;
+  return std::nullopt;
+}
+
+std::optional<size_t> Compiler::resolve_upvalue(std::string_view name) {
+  // If there is no enclosing function, it can't be an upvalue
+  if (parent == nullptr)
+    return std::nullopt;
+
+  // Let's check if it's a local variable in the immediately enclosing
+  // function...
+  std::optional<size_t> opt_local_index = parent->resolve_local(name);
+  if (opt_local_index.has_value()) {
+    size_t parent_local_index = opt_local_index.value();
+    size_t upvalue_index = declare_upvalue(Upvalue{parent_local_index, true});
+    return upvalue_index;
+  }
+
+  // If not, recurse upwards
+  std::optional<size_t> opt_upvalue_index = parent->resolve_upvalue(name);
+  if (opt_upvalue_index.has_value()) {
+    size_t parent_upvalue_index = opt_upvalue_index.value();
+    size_t upvalue_index = declare_upvalue(Upvalue{parent_upvalue_index, false});
+    return upvalue_index;
+  }
+
+  // Not an upvalue, so it's a global.
+  return std::nullopt;
+}
+
+size_t Compiler::declare_upvalue(Upvalue upvalue) {
+  // Check if this upvalue has already been declared.
+  for (size_t i = 0; i < current_function->upvalues.size(); i++) {
+    if (current_function->upvalues[i] == upvalue) {
+      return i;
+    }
+  }
+  current_function->upvalues.push_back(upvalue);
+  return current_function->upvalues.size() - 1;
 }
 
 using lox::scanner::Scanner;
@@ -139,10 +176,14 @@ void Parser::function() {
   if (final_fnptr == nullptr) {
     return;
   } else {
-    // Need to convert unique_ptr to shared_ptr
-    size_t constant_index = make_constant(std::move(final_fnptr));
+    auto final_fnptr_shared = std::shared_ptr<ObjFunction>(std::move(final_fnptr));
+    size_t constant_index = make_constant(final_fnptr_shared);
     emit(lox::OpCode::CLOSURE);
     emit(static_cast<uint8_t>(constant_index));
+    for (const Upvalue& upvalue : final_fnptr_shared->upvalues) {
+      emit(upvalue.is_local ? 1 : 0);
+      emit(static_cast<uint8_t>(upvalue.index));
+    }
     define_variable(fn_name);
   }
 }
@@ -377,38 +418,55 @@ void Parser::variable(bool can_assign) {
   named_variable(previous.lexeme, can_assign);
 }
 
-void Parser::named_variable(std::string_view lexeme, bool can_assign) {
-  int local_index = compiler->resolve_local(lexeme);
-  if (local_index == -1) {
-    // Not found, so it's a global variable
-    std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
-    size_t constant_index = make_constant(var_name_str);
-    // It might be an assignment though...
-    if (consume_if(TokenType::EQUAL)) {
-      if (!can_assign) {
-        error("invalid assignment target", previous.line);
-      }
-      // It's an assignment; evaluate the RHS expression first.
-      expression();
-      emit(lox::OpCode::SET_GLOBAL);
-      emit(static_cast<uint8_t>(constant_index));
-    } else {
-      // Just variable access.
-      emit(lox::OpCode::GET_GLOBAL);
-      emit(static_cast<uint8_t>(constant_index));
+void Parser::emit_variable_access(lox::OpCode set_opcode,
+                                  lox::OpCode get_opcode, bool can_assign,
+                                  size_t index) {
+  // check whether it's a get or a set.
+  if (consume_if(TokenType::EQUAL)) {
+    if (!can_assign) {
+      error("invalid assignment target", previous.line);
     }
+    // It's a set. So we need to first parse & emit code for the rhs (the
+    // value), which will put the value on top of the stack.
+    expression();
+    // The set opcode will then read it from the stack and assign it to the
+    // variable in position `index`. (Exactly what `index` refers to depends on
+    // whether it's a local, upvalue, or global. For locals, `index` refers to
+    // the position on the stack. For globals, `index` refers to the index of
+    // the variable NAME in the constant table. The VM then looks up the name in
+    // its globals map to get the value.)
+    emit(set_opcode);
+    emit(static_cast<uint8_t>(index));
   } else {
-    // It's a local variable located at local_index on the stack.
-    if (consume_if(TokenType::EQUAL)) {
-      if (!can_assign) {
-        error("invalid assignment target", previous.line);
-      }
-      expression();
-      emit(lox::OpCode::SET_LOCAL);
-      emit(static_cast<uint8_t>(local_index));
+    // Just a get; the get opcode will read it from position `index` and push to
+    // the stack.
+    emit(get_opcode);
+    emit(static_cast<uint8_t>(index));
+  }
+}
+
+void Parser::named_variable(std::string_view lexeme, bool can_assign) {
+  std::optional<size_t> opt_local_index = compiler->resolve_local(lexeme);
+  if (opt_local_index.has_value()) {
+    size_t local_index = opt_local_index.value();
+    emit_variable_access(lox::OpCode::SET_LOCAL, lox::OpCode::GET_LOCAL,
+                         can_assign, local_index);
+  } else {
+    // Check if it's an upvalue.
+    std::optional<size_t> opt_upvalue_index = compiler->resolve_upvalue(lexeme);
+    if (opt_upvalue_index.has_value()) {
+      size_t upvalue_index = opt_upvalue_index.value();
+      emit_variable_access(lox::OpCode::SET_UPVALUE, lox::OpCode::GET_UPVALUE,
+                           can_assign, upvalue_index);
     } else {
-      emit(lox::OpCode::GET_LOCAL);
-      emit(static_cast<uint8_t>(local_index));
+      // Not found, so it's a global variable (it might be undefined, but
+      // that's a runtime error). We can't error in the compiler because it
+      // might be defined later after we're done compiling the current
+      // function.
+      std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
+      size_t constant_index = make_constant(var_name_str);
+      emit_variable_access(lox::OpCode::SET_GLOBAL, lox::OpCode::GET_GLOBAL,
+                           can_assign, constant_index);
     }
   }
   return;
@@ -637,7 +695,8 @@ void Parser::and_operator(bool _) {
 
 void Parser::or_operator(bool _) {
   // We've already consumed the 'and' operator, as well as the left operand.
-  // This is a bit more complicated because we don't have a JUMP_IF_TRUE opcode.
+  // This is a bit more complicated because we don't have a JUMP_IF_TRUE
+  // opcode.
   size_t jump_to_right_operand = emit_jump(lox::OpCode::JUMP_IF_FALSE);
   // If we don't follow the jump, that means the left operand was truthy, so
   // we can skip the right operand entirely.

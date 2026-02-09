@@ -122,13 +122,7 @@ std::string VM::read_global_name() {
   lox::Value var_name_value = read_constant();
   // This is technically unsafe since the constant could be any Value, but
   // by construction of the parser it should always be a string.
-  auto var_name_ptr = std::get<std::shared_ptr<Obj>>(var_name_value);
-  auto var_name_str = std::dynamic_pointer_cast<ObjString>(var_name_ptr);
-  if (var_name_str == nullptr) {
-    throw std::runtime_error(
-        "unreachable: global variable name is not a string");
-  }
-  return var_name_str->value;
+  return as_obj<ObjString>(var_name_value)->value;
 }
 
 lox::Value
@@ -219,17 +213,7 @@ InterpretResult VM::run() {
       }
       case OpCode::CLOSURE: {
         lox::Value c = read_constant();
-        if (!std::holds_alternative<std::shared_ptr<Obj>>(c)) {
-          throw std::runtime_error(
-              "CLOSURE instruction's operand is not an Obj");
-        }
-        std::shared_ptr<Obj> c_obj = std::get<std::shared_ptr<Obj>>(c);
-        std::shared_ptr<ObjFunction> c_fn =
-            std::dynamic_pointer_cast<ObjFunction>(c_obj);
-        if (c_fn == nullptr) {
-          throw std::runtime_error(
-              "CLOSURE instruction's operand is not an ObjFunction");
-        }
+        auto c_fn = as_obj<ObjFunction>(c);
         auto c_clos = std::make_shared<ObjClosure>(c_fn);
         stack_push(c_clos);
         break;
@@ -403,7 +387,8 @@ InterpretResult VM::run() {
             // Push the return value onto the stack.
             stack_push(retval);
           } else {
-            throw std::runtime_error("can only call closure or native function");
+            throw std::runtime_error(
+                "can only call closure or native function");
           }
         }
         break;

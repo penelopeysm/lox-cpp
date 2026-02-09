@@ -50,11 +50,16 @@ public:
   // Returns the number of locals removed from the locals list when exiting a
   // scope. Parser needs to know this so that it can emit POP instructions.
   [[nodiscard]] size_t end_scope();
-  [[nodiscard]] int resolve_local(std::string_view name);
+  [[nodiscard]] std::optional<size_t> resolve_local(std::string_view name);
+  [[nodiscard]] std::optional<size_t> resolve_upvalue(std::string_view name);
   size_t get_scope_depth() const { return scope_depth; }
   // Returns a boolean indicating whether there was an error declaring the
   // local variable (e.g., duplicate variable name in the same scope).
   bool declare_local(std::string_view name);
+  // Return the index of the upvalue in the current function's list of
+  // upvalues. This upvalue may be newly created, or it may already exist (e.g.
+  // if the same captured variable is referenced multiple times).
+  [[nodiscard]] size_t declare_upvalue(Upvalue upvalue);
   bool is_at_top_level() const { return is_top_level; }
 
   size_t get_chunk_size() const { return current_function->chunk.size(); }
@@ -154,6 +159,7 @@ private:
   // Pushes to the constant table and *additionally* emits the CONSTANT
   // instruction. Returns the index of the constant just added.
   size_t emit_constant(lox::Value value);
+  void emit_variable_access(lox::OpCode get_opcode, lox::OpCode set_opcode, bool can_assign, size_t index);
   size_t emit_jump(lox::OpCode jump_opcode);
   void patch_jump(size_t jump_byte, size_t jump_offset);
   void emit_call(size_t arg_count);

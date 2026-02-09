@@ -14,6 +14,10 @@ struct LoxValuePrinter {
 
 namespace lox {
 
+bool operator==(const Upvalue& a, const Upvalue& b) {
+  return a.index == b.index && a.is_local == b.is_local;
+}
+
 std::ostream& operator<<(std::ostream& os, const Value& value) {
   std::visit(LoxValuePrinter{os}, value);
   return os;

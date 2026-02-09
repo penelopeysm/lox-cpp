@@ -13,6 +13,16 @@ enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
 // Forward declarations
 class StringMap; // Actually in stringmap.hpp
 
+class Upvalue {
+public:
+  size_t index;
+  // Indicates whether it is a local variable in the immediately enclosing
+  // function (true), or whether it's even higher up (false). We use this
+  // information to figure out where in the stack the variable is.
+  bool is_local;
+};
+bool operator==(const Upvalue& a, const Upvalue& b);
+
 class Obj {
 public:
   // NOTE: Marking a member function as `virtual` means that C++ will force
@@ -53,6 +63,7 @@ class ObjFunction : public Obj {
 public:
   std::string name;
   size_t arity;
+  std::vector<Upvalue> upvalues;
   Chunk chunk;
 
   ObjFunction(std::string_view name, int arity)
@@ -96,6 +107,21 @@ private:
   // The actual C++ function that implements the native function.
   std::function<Value(size_t arg_count, const Value* args)> function;
 };
+
+// NOTE: Template functions have to go entirely into the header file for
+// reasons I don't fully yet get
+template <typename T> std::shared_ptr<T> as_obj(const Value& value) {
+  if (!std::holds_alternative<std::shared_ptr<Obj>>(value)) {
+    throw std::runtime_error("value is not an Obj");
+  }
+  auto objptr = std::get<std::shared_ptr<Obj>>(value);
+  auto dynptr = std::dynamic_pointer_cast<T>(objptr);
+  if (dynptr == nullptr) {
+    throw std::runtime_error("value is not a " + std::string(typeid(T).name()));
+  }
+  return dynptr;
+}
+
 
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);

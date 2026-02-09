@@ -155,9 +155,16 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   case OpCode::CLOSURE: {
     // get the ObjFunction from the constant table
     uint8_t constant_index = code[offset + 1];
-    Value constant = constants[constant_index];
-    os << "CLOSURE " << constant << "\n";
-    return offset + 2;
+    auto function = as_obj<ObjFunction>(constants[constant_index]);
+    os << "CLOSURE " << function << "\n";
+    size_t n_upvalues = function->upvalues.size();
+    for (size_t i = 0; i < n_upvalues; ++i) {
+      uint8_t is_local = code[offset + 2 + 2 * i];
+      uint8_t index = code[offset + 2 + 2 * i + 1];
+      os << "  upvalue " << i << ": is_local=" << +is_local
+         << ", index=" << +index << "\n";
+    }
+    return offset + 2 + 2 * n_upvalues;
   }
   case OpCode::RETURN: {
     os << "RETURN\n";
