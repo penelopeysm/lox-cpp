@@ -215,7 +215,34 @@ InterpretResult VM::run() {
         lox::Value c = read_constant();
         auto c_fn = as_obj<ObjFunction>(c);
         auto c_clos = std::make_shared<ObjClosure>(c_fn);
+        for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
+          uint8_t is_local = read_byte();
+          uint8_t index = read_byte();
+          if (is_local) {
+            // The upvalue references a local variable in its parent function
+            // (which is the current function! since we have just finished
+            // compiling the inner function and have now exited back to the
+            // parent).
+            Value* local_value = get_local_variable_address(index);
+            ObjUpvalue* upvalue = new ObjUpvalue(local_value);
+            c_clos->upvalues.push_back(upvalue);
+          }
+        }
         stack_push(c_clos);
+        break;
+      }
+      case OpCode::GET_UPVALUE: {
+        uint8_t upvalue_index = read_byte();
+        lox::ObjUpvalue* upvalue = current_frame().closure->upvalues.at(upvalue_index);
+        lox::Value actual_value = *(upvalue->location);
+        stack_push(actual_value);
+        break;
+      }
+      case OpCode::SET_UPVALUE: {
+        uint8_t upvalue_index = read_byte();
+        lox::ObjUpvalue* upvalue = current_frame().closure->upvalues.at(upvalue_index);
+        lox::Value target_value = stack_peek();
+        *(upvalue->location) = target_value;
         break;
       }
       case OpCode::NEGATE: {

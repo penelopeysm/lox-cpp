@@ -69,6 +69,15 @@ private:
     }
     return stack[stack_index];
   }
+
+  lox::Value* get_local_variable_address(size_t local_index) {
+    size_t stack_index = current_frame().stack_start + local_index;
+    if (stack_index >= stack_ptr) {
+      error("get_local_variable: invalid local variable index");
+    }
+    return &stack[current_frame().stack_start + local_index];
+  }
+
   void set_local_variable(size_t local_index, const lox::Value& value) {
     size_t stack_index = current_frame().stack_start + local_index;
     if (stack_index >= stack_ptr) {

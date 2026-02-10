@@ -161,10 +161,20 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     for (size_t i = 0; i < n_upvalues; ++i) {
       uint8_t is_local = code[offset + 2 + 2 * i];
       uint8_t index = code[offset + 2 + 2 * i + 1];
-      os << "  upvalue " << i << ": is_local=" << +is_local
+      os << "     upvalue #" << i << ": is_local=" << +is_local
          << ", index=" << +index << "\n";
     }
     return offset + 2 + 2 * n_upvalues;
+  }
+  case OpCode::GET_UPVALUE: {
+    uint8_t upvalue_index = code[offset + 1];
+    os << "GET_UPVALUE " << +upvalue_index << "\n";
+    return offset + 2;
+  }
+  case OpCode::SET_UPVALUE: {
+    uint8_t upvalue_index = code[offset + 1];
+    os << "SET_UPVALUE " << +upvalue_index << "\n";
+    return offset + 2;
   }
   case OpCode::RETURN: {
     os << "RETURN\n";

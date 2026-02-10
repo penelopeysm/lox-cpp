@@ -1,10 +1,10 @@
-fun f() {
-   print "outer";
-   return 1;
-}
-
-var x = f();
-print x;
+// fun f() {
+//    print "outer";
+//    return 1;
+// }
+// 
+// var x = f();
+// print x;
 
 // var x = "global";
 // fun outer() {
@@ -15,3 +15,13 @@ print x;
 //   inner();
 // }
 // outer();
+
+fun outer() {
+  var x = "before";
+  fun inner() {
+    x = "assigned";
+  }
+  inner();
+  print x;
+}
+outer();

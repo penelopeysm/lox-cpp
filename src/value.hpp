@@ -75,13 +75,28 @@ public:
   }
 };
 
+class ObjUpvalue : public Obj {
+public:
+  Value* location;
+
+  ObjUpvalue(Value* location) : location(location) {}
+  std::string to_repr() const override { return "<upvalue>"; }
+  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+    throw std::runtime_error("loxc: add: cannot add upvalue objects");
+  }
+};
+
 class ObjClosure : public Obj {
 public:
   std::shared_ptr<ObjFunction> function;
-  
+  std::vector<ObjUpvalue*> upvalues;
+
+  // upvalues will be filled at runtime.
   ObjClosure(std::shared_ptr<ObjFunction> function)
-      : function(std::move(function)) {}
-  std::string to_repr() const override { return "<clos " + function->name + ">"; }
+      : function(std::move(function)), upvalues() {}
+  std::string to_repr() const override {
+    return "<clos " + function->name + ">";
+  }
   Value add(const std::shared_ptr<Obj>&, StringMap&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
@@ -121,7 +136,6 @@ template <typename T> std::shared_ptr<T> as_obj(const Value& value) {
   }
   return dynptr;
 }
-
 
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);
