@@ -78,8 +78,9 @@ public:
 class ObjUpvalue : public Obj {
 public:
   Value* location;
+  Value closed; // when the upvalue is closed, we store the value here
 
-  ObjUpvalue(Value* location) : location(location) {}
+  ObjUpvalue(Value* location) : location(location), closed(std::monostate()) {}
   std::string to_repr() const override { return "<upvalue>"; }
   Value add(const std::shared_ptr<Obj>&, StringMap&) override {
     throw std::runtime_error("loxc: add: cannot add upvalue objects");

@@ -30,7 +30,7 @@ public:
   bool exactly_at_end() const { return ip == closure->function->chunk.size(); }
 
   void disassemble(std::ostream& out) const {
-    closure->function->chunk.disassemble(out, ip);
+    closure->function->chunk.disassemble(out, ip, closure->function->name);
   }
 };
 
@@ -40,8 +40,9 @@ public:
   InterpretResult run();
   std::ostream& stack_dump(std::ostream& out) const;
   InterpretResult invoke_toplevel();
-  VM& define_native(const std::string& name, size_t arity,
-                    std::function<lox::Value(size_t, const lox::Value*)> function);
+  VM& define_native(
+      const std::string& name, size_t arity,
+      std::function<lox::Value(size_t, const lox::Value*)> function);
 
 private:
   std::vector<CallFrame> call_frames;
@@ -55,9 +56,14 @@ private:
   // maps from the name of a global variable to its value
   std::unordered_map<std::string, lox::Value> globals;
   std::unique_ptr<Parser> parser;
+  // sorted upvalues that haven't been closed yet. They sort in decreasing order of
+  // the stack slot that they point to
+  std::vector<ObjUpvalue*> open_upvalues; 
 
   CallFrame& current_frame() { return call_frames[call_frame_ptr]; }
   Chunk& get_chunk() { return current_frame().closure->function->chunk; }
+
+  void close_upvalues_after(Value* addr);
 
   lox::Value get_local_variable(size_t local_index) {
     // Because local_index is an index into the current function's locals,
@@ -104,6 +110,7 @@ private:
   VM& stack_reset();
   VM& stack_push(const lox::Value& value);
   lox::Value stack_peek();
+  lox::Value* stack_top_address();
   lox::Value stack_pop();
   // Apply `op` to the top value on the stack, replacing it with the result
   lox::Value

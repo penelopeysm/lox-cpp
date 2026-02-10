@@ -12,14 +12,15 @@
 // this file. This helps to avoid e.g. name clashes with other translation
 // units.
 namespace {
-std::ostream& print_offset(std::ostream& os, size_t offset) {
+std::ostream& print_offset(std::ostream& os, size_t offset,
+                           std::string_view fn_name) {
   // NOTE: The old-style way of printing formatted output was to set flags on
   // the output stream `os`.
   //   return os << std::setw(4) << std::setfill('0') << offset << ": ";
   // This still works, but the problem is that it changes the state of the
   // output stream, so subsequent output may end up being zero-padded as well.
   // In C++20 you can use std::format instead which does not have this problem.
-  return os << std::format("{:04} ", offset);
+  return os << std::format("{} {:04} ", fn_name, offset);
 }
 
 std::ostream& print_byte(std::ostream& os, uint8_t byte) {
@@ -132,17 +133,19 @@ size_t lox::Chunk::debuginfo_at(size_t bytecode_offset) const {
   }
 }
 
-size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
+size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
+                               std::string_view fn_name) const {
   size_t nbytes = code.size();
   if (offset > nbytes) {
     throw std::out_of_range("loxc: Chunk::disassemble: offset " +
                             std::to_string(offset) + " out of range (size " +
                             std::to_string(nbytes) + ")");
   } else if (offset == nbytes) {
-    os << "Reached end of Chunk with " << nbytes << " bytes\n";
+    os << "Reached end of Chunk for " << fn_name << " with " << nbytes
+       << " bytes\n";
     return offset;
   }
-  print_offset(os, offset);
+  print_offset(os, offset, fn_name);
   uint8_t instruction = code[offset];
 
   switch (static_cast<OpCode>(instruction)) {
@@ -168,13 +171,17 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
   }
   case OpCode::GET_UPVALUE: {
     uint8_t upvalue_index = code[offset + 1];
-    os << "GET_UPVALUE " << +upvalue_index << "\n";
+    os << "GET_UPVALUE upvalue_index=" << +upvalue_index << "\n";
     return offset + 2;
   }
   case OpCode::SET_UPVALUE: {
     uint8_t upvalue_index = code[offset + 1];
-    os << "SET_UPVALUE " << +upvalue_index << "\n";
+    os << "SET_UPVALUE upvalue_index=" << +upvalue_index << "\n";
     return offset + 2;
+  }
+  case OpCode::CLOSE_UPVALUE: {
+    os << "CLOSE_UPVALUE\n";
+    return offset + 1;
   }
   case OpCode::RETURN: {
     os << "RETURN\n";
@@ -249,42 +256,38 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset) const {
     // cast it to an integer type first. The 'proper' way would be
     // static_cast<int>, but the unary + operator also works as that is a
     // promotion operator.
-    os << "SET_LOCAL " << +local_index << "\n";
+    os << "SET_LOCAL local_index=" << +local_index << "\n";
     return offset + 2;
   }
   case OpCode::GET_LOCAL: {
     uint8_t local_index = code[offset + 1];
-    os << "GET_LOCAL " << +local_index << "\n";
+    os << "GET_LOCAL local_index=" << +local_index << "\n";
     return offset + 2;
   }
   case OpCode::JUMP_IF_FALSE: {
     uint8_t high_byte = code[offset + 1];
     uint8_t low_byte = code[offset + 2];
     uint16_t jump_offset = (static_cast<uint16_t>(high_byte) << 8) | low_byte;
-    os << "JUMP_IF_FALSE " << jump_offset << "\n";
+    os << "JUMP_IF_FALSE offset=" << jump_offset << "\n";
     return offset + 3;
   }
   case OpCode::JUMP: {
     uint8_t high_byte = code[offset + 1];
     uint8_t low_byte = code[offset + 2];
     uint16_t jump_offset = (static_cast<uint16_t>(high_byte) << 8) | low_byte;
-    os << "JUMP " << jump_offset << "\n";
+    os << "JUMP offset=" << jump_offset << "\n";
     return offset + 3;
   }
   case OpCode::CALL: {
     uint8_t nargs = code[offset + 1];
-    os << "CALL " << +nargs << "\n";
+    os << "CALL nargs=" << +nargs << "\n";
     return offset + 2;
   }
   }
 }
 
-std::ostream& lox::operator<<(std::ostream& os, const lox::Chunk& chunk) {
-  chunk.hex_dump(os);
-  return os;
-}
-
-std::ostream& lox::Chunk::hex_dump(std::ostream& os) const {
+std::ostream& lox::Chunk::hex_dump(std::ostream& os,
+                                   std::string_view fn_name) const {
   size_t nbytes = code.size();
   // NOTE: "\n" vs std::endl: the latter always flushes the stream, which is
   // not always what we want (e.g. if writing to a file, it may be more
@@ -293,7 +296,7 @@ std::ostream& lox::Chunk::hex_dump(std::ostream& os) const {
   for (size_t offset = 0; offset < nbytes; ++offset) {
     uint8_t byte = code[offset];
     if (offset % 16 == 0)
-      print_offset(os, offset);
+      print_offset(os, offset, fn_name);
     print_byte(os, byte);
     if (offset % 16 == 15 || offset == nbytes - 1) {
       os << "\n";

@@ -26,6 +26,8 @@ Precedence next_precedence(Precedence in);
 struct Local {
   size_t depth;
   std::string_view name;
+  // Whether this local variable is referenced by any nested function
+  bool is_captured;
 };
 
 class Compiler {
@@ -47,9 +49,10 @@ public:
   }
 
   void begin_scope() { scope_depth++; }
-  // Returns the number of locals removed from the locals list when exiting a
-  // scope. Parser needs to know this so that it can emit POP instructions.
-  [[nodiscard]] size_t end_scope();
+  // Returns a sequence of bools indicating whether each local variable popped
+  // was captured by a nested function. The caller can use this information to
+  // decide whether to emit a POP or a CLOSE_UPVALUE instruction.
+  [[nodiscard]] std::vector<bool> end_scope();
   [[nodiscard]] std::optional<size_t> resolve_local(std::string_view name);
   [[nodiscard]] std::optional<size_t> resolve_upvalue(std::string_view name);
   size_t get_scope_depth() const { return scope_depth; }
@@ -124,6 +127,7 @@ private:
   // Parsing methods
   void parse_precedence(Precedence precedence);
   void block();
+  void end_scope();
   void function();
   void declaration();
   void var_declaration();

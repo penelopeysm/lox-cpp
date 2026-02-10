@@ -33,14 +33,15 @@ Precedence next_precedence(Precedence in) {
   return static_cast<Precedence>(static_cast<int>(in) + 1);
 }
 
-size_t Compiler::end_scope() {
-  size_t num_popped = 0;
+std::vector<bool> Compiler::end_scope() {
+  std::vector<bool> is_captureds;
   while (!locals.empty() && locals.back().depth == scope_depth) {
+    bool is_captured = locals.back().is_captured;
     locals.pop_back();
-    ++num_popped;
+    is_captureds.push_back(is_captured);
   }
   --scope_depth;
-  return num_popped;
+  return is_captureds;
 }
 
 bool Compiler::declare_local(std::string_view name) {
@@ -61,7 +62,7 @@ bool Compiler::declare_local(std::string_view name) {
     }
   }
   // If we reached here, we're good.
-  locals.push_back(Local{scope_depth, name});
+  locals.push_back(Local{scope_depth, name, false});
   return false;
 }
 
@@ -84,6 +85,7 @@ std::optional<size_t> Compiler::resolve_upvalue(std::string_view name) {
   std::optional<size_t> opt_local_index = parent->resolve_local(name);
   if (opt_local_index.has_value()) {
     size_t parent_local_index = opt_local_index.value();
+    parent->locals[parent_local_index].is_captured = true;
     size_t upvalue_index = declare_upvalue(Upvalue{parent_local_index, true});
     return upvalue_index;
   }
@@ -92,7 +94,8 @@ std::optional<size_t> Compiler::resolve_upvalue(std::string_view name) {
   std::optional<size_t> opt_upvalue_index = parent->resolve_upvalue(name);
   if (opt_upvalue_index.has_value()) {
     size_t parent_upvalue_index = opt_upvalue_index.value();
-    size_t upvalue_index = declare_upvalue(Upvalue{parent_upvalue_index, false});
+    size_t upvalue_index =
+        declare_upvalue(Upvalue{parent_upvalue_index, false});
     return upvalue_index;
   }
 
@@ -176,7 +179,8 @@ void Parser::function() {
   if (final_fnptr == nullptr) {
     return;
   } else {
-    auto final_fnptr_shared = std::shared_ptr<ObjFunction>(std::move(final_fnptr));
+    auto final_fnptr_shared =
+        std::shared_ptr<ObjFunction>(std::move(final_fnptr));
     size_t constant_index = make_constant(final_fnptr_shared);
     emit(lox::OpCode::CLOSURE);
     emit(static_cast<uint8_t>(constant_index));
@@ -478,6 +482,17 @@ void Parser::block() {
   }
 }
 
+void Parser::end_scope() {
+  std::vector<bool> pops = compiler->end_scope();
+  for (bool is_captured : pops) {
+    if (is_captured) {
+      emit(lox::OpCode::CLOSE_UPVALUE);
+    } else {
+      emit(lox::OpCode::POP);
+    }
+  }
+}
+
 void Parser::statement() {
   if (consume_if(TokenType::PRINT)) {
     print_statement();
@@ -492,10 +507,7 @@ void Parser::statement() {
   } else if (consume_if(TokenType::LEFT_BRACE)) {
     compiler->begin_scope();
     block();
-    size_t num_popped = compiler->end_scope();
-    for (size_t i = 0; i < num_popped; ++i) {
-      emit(lox::OpCode::POP);
-    }
+    end_scope();
   } else {
     expression_statement();
   }
@@ -613,10 +625,7 @@ void Parser::for_statement() {
   }
   emit(lox::OpCode::POP);
 
-  size_t npops = compiler->end_scope();
-  for (size_t i = 0; i < npops; ++i) {
-    emit(lox::OpCode::POP);
-  }
+  end_scope();
 }
 
 void Parser::expression_statement() {

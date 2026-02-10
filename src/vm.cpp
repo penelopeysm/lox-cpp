@@ -103,6 +103,13 @@ VM& VM::stack_push(const lox::Value& value) {
   return *this;
 }
 
+lox::Value* VM::stack_top_address() {
+  if (stack_ptr == 0) {
+    error("stack_top_address: stack underflow");
+  }
+  return &stack[stack_ptr - 1];
+}
+
 lox::Value VM::stack_pop() {
   if (stack_ptr == 0) {
     error("stack_pop: stack underflow");
@@ -123,6 +130,23 @@ std::string VM::read_global_name() {
   // This is technically unsafe since the constant could be any Value, but
   // by construction of the parser it should always be a string.
   return as_obj<ObjString>(var_name_value)->value;
+}
+
+void VM::close_upvalues_after(Value* addr) {
+  for (auto it = open_upvalues.begin(); it != open_upvalues.end();) {
+    // `it` is an iterator over a vector of ObjUpvalue*, so `it` itself is
+    // ObjUpvalue**
+    auto upvalue_ptr = *it;
+    if (upvalue_ptr->location >= addr) {
+      std::cerr << "closing upvalue at location " << upvalue_ptr->location
+                << " with value " << *(upvalue_ptr->location) << "\n";
+      upvalue_ptr->closed = *(upvalue_ptr->location);
+      upvalue_ptr->location = &(upvalue_ptr->closed);
+      it = open_upvalues.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 lox::Value
@@ -224,8 +248,34 @@ InterpretResult VM::run() {
             // compiling the inner function and have now exited back to the
             // parent).
             Value* local_value = get_local_variable_address(index);
-            ObjUpvalue* upvalue = new ObjUpvalue(local_value);
-            c_clos->upvalues.push_back(upvalue);
+            // local_value is somewhere on the stack. Let's check if the VM
+            // already has an open upvalue pointing to that stack slot. If so,
+            // we can reuse it.
+            // NOTE: lambda captures are kind of weird in C++! You can't use
+            // local_value inside the lambda unless you capture it by
+            // including it inside the square brackets (which is a capture
+            // list). Then there are also lots of different ways to capture
+            // things. You can capture by reference ([&something]) or by
+            // value ([something]), and you can also capture *everything* by
+            // reference ([&]) or by value ([=]).
+            // TODO: this is a bit suboptimal because our open_upvalues
+            // vector is not sorted. That means that every search is O(n). We
+            // could optimise this by keeping open_upvalues sorted and then
+            // stopping once we have passed the relevant stack slot. The book
+            // does this, but I didn't want to bother with the manual pointer
+            // stuff.
+            auto it = std::find_if(open_upvalues.begin(), open_upvalues.end(),
+                                   [local_value](ObjUpvalue* upv) {
+                                     return upv->location == local_value;
+                                   });
+            if (it != open_upvalues.end()) {
+              c_clos->upvalues.push_back(*it);
+            } else {
+              // Not found so we can create a new upvalue
+              ObjUpvalue* upvalue = new ObjUpvalue(local_value);
+              open_upvalues.push_back(upvalue);
+              c_clos->upvalues.push_back(upvalue);
+            }
           }
         }
         stack_push(c_clos);
@@ -233,16 +283,23 @@ InterpretResult VM::run() {
       }
       case OpCode::GET_UPVALUE: {
         uint8_t upvalue_index = read_byte();
-        lox::ObjUpvalue* upvalue = current_frame().closure->upvalues.at(upvalue_index);
+        lox::ObjUpvalue* upvalue =
+            current_frame().closure->upvalues.at(upvalue_index);
         lox::Value actual_value = *(upvalue->location);
         stack_push(actual_value);
         break;
       }
       case OpCode::SET_UPVALUE: {
         uint8_t upvalue_index = read_byte();
-        lox::ObjUpvalue* upvalue = current_frame().closure->upvalues.at(upvalue_index);
+        lox::ObjUpvalue* upvalue =
+            current_frame().closure->upvalues.at(upvalue_index);
         lox::Value target_value = stack_peek();
         *(upvalue->location) = target_value;
+        break;
+      }
+      case OpCode::CLOSE_UPVALUE: {
+        close_upvalues_after(stack_top_address());
+        stack_pop();
         break;
       }
       case OpCode::NEGATE: {
@@ -422,6 +479,7 @@ InterpretResult VM::run() {
       }
       case OpCode::RETURN: {
         lox::Value retval = stack_pop();
+        close_upvalues_after(&stack[current_frame().stack_start]);
         // std::cerr << "returning " << retval << "\n";
         // Pop the current call frame.
         if (call_frame_ptr == 0) {
@@ -447,7 +505,6 @@ InterpretResult VM::run() {
     } else {
       throw std::runtime_error("unexpected end of bytecode");
     }
-
   } catch (const std::runtime_error& e) {
     std::cerr << "lox runtime error at line "
               << current_frame().get_current_debuginfo_line() << ": "
