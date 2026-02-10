@@ -3,7 +3,9 @@
 #include "chunk.hpp"
 #include "value_def.hpp"
 #include <iostream>
+#include <functional>
 #include <memory>
+#include <stdexcept>
 #include <ostream>
 
 namespace lox {
