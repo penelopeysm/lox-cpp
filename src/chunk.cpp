@@ -158,7 +158,8 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
   case OpCode::CLOSURE: {
     // get the ObjFunction from the constant table
     uint8_t constant_index = code[offset + 1];
-    auto function = as_obj<ObjFunction>(constants[constant_index]);
+    auto function =
+        static_cast<ObjFunction*>(std::get<Obj*>(constants[constant_index]));
     os << "CLOSURE " << function << "\n";
     size_t n_upvalues = function->upvalues.size();
     for (size_t i = 0; i < n_upvalues; ++i) {

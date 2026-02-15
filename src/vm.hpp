@@ -15,11 +15,11 @@ InterpretResult interpret(std::string_view source);
 
 class CallFrame {
 public:
-  std::shared_ptr<ObjClosure> closure;
+  ObjClosure* closure;
   size_t ip;
   size_t stack_start;
 
-  CallFrame(std::shared_ptr<ObjClosure> clos, size_t ip, size_t stack_start)
+  CallFrame(ObjClosure* clos, size_t ip, size_t stack_start)
       : closure(std::move(clos)), ip(ip), stack_start(stack_start) {}
   uint8_t read_byte() { return closure->function->chunk.at(ip++); }
   void shift_ip(int offset) { ip += offset; }
@@ -56,9 +56,9 @@ private:
   // maps from the name of a global variable to its value
   std::unordered_map<std::string, lox::Value> globals;
   std::unique_ptr<Parser> parser;
-  // sorted upvalues that haven't been closed yet. They sort in decreasing order of
-  // the stack slot that they point to
-  std::vector<ObjUpvalue*> open_upvalues; 
+  // sorted upvalues that haven't been closed yet. They sort in decreasing order
+  // of the stack slot that they point to
+  std::vector<ObjUpvalue*> open_upvalues;
 
   CallFrame& current_frame() { return call_frames[call_frame_ptr]; }
   Chunk& get_chunk() { return current_frame().closure->function->chunk; }
@@ -104,7 +104,7 @@ private:
 
   VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
 
-  void call(std::shared_ptr<ObjClosure> callee, size_t arg_count);
+  void call(ObjClosure* callee, size_t arg_count);
 
   // Move the stack pointer back to the base
   VM& stack_reset();

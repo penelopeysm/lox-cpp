@@ -1,6 +1,7 @@
 #include "compiler.hpp"
 #include "chunk.hpp"
 #include "scanner.hpp"
+#include "gc.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -117,11 +118,11 @@ size_t Compiler::declare_upvalue(Upvalue upvalue) {
 using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
-Parser::Parser(std::unique_ptr<Scanner> scanner,
-               std::unique_ptr<ObjFunction> fnptr, StringMap& string_map)
+Parser::Parser(std::unique_ptr<Scanner> scanner, ObjFunction* fnptr,
+               StringMap& string_map)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), string_map(string_map),
-      compiler(std::make_unique<Compiler>(std::move(fnptr))) {}
+      compiler(std::make_unique<Compiler>(fnptr)) {}
 
 void Parser::advance() {
   previous = current;
@@ -141,9 +142,9 @@ void Parser::function() {
   // updated on the fly later when we parse the function parameters.
   int arity = 0;
   // TODO: This copies the string. Do we need to?
-  auto new_fnptr = std::make_unique<ObjFunction>(fn_name, arity);
+  auto new_fnptr = gc_new<ObjFunction>(fn_name, arity);
   auto new_compiler =
-      std::make_unique<Compiler>(std::move(new_fnptr), std::move(compiler));
+      std::make_unique<Compiler>(new_fnptr, std::move(compiler));
   compiler = std::move(new_compiler);
   compiler->begin_scope();
   // Parse parameters (if there are any).
@@ -179,12 +180,10 @@ void Parser::function() {
   if (final_fnptr == nullptr) {
     return;
   } else {
-    auto final_fnptr_shared =
-        std::shared_ptr<ObjFunction>(std::move(final_fnptr));
-    size_t constant_index = make_constant(final_fnptr_shared);
+    size_t constant_index = make_constant(final_fnptr);
     emit(lox::OpCode::CLOSURE);
     emit(static_cast<uint8_t>(constant_index));
-    for (const Upvalue& upvalue : final_fnptr_shared->upvalues) {
+    for (const Upvalue& upvalue : final_fnptr->upvalues) {
       emit(upvalue.is_local ? 1 : 0);
       emit(static_cast<uint8_t>(upvalue.index));
     }
@@ -223,7 +222,7 @@ void Parser::call(bool) {
   emit_call(arg_count);
 }
 
-std::unique_ptr<ObjFunction> Parser::finalise_function() {
+ObjFunction* Parser::finalise_function() {
   if (has_error()) {
     std::cerr << "[line " << errmsg->second << "] Error: " << errmsg->first
               << "\n";
@@ -235,7 +234,7 @@ std::unique_ptr<ObjFunction> Parser::finalise_function() {
     emit(lox::OpCode::RETURN);
     // Get the function object from the current compiler, and pop it off the
     // compiler stack.
-    auto fnptr = compiler->extract_current_function();
+    auto fnptr = compiler->get_current_function();
     compiler = compiler->get_parent();
     return fnptr;
   }
@@ -408,7 +407,7 @@ void Parser::define_variable(std::string_view var_name) {
 }
 
 void Parser::define_global_variable(std::string_view name) {
-  std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(name);
+  ObjString* var_name_str = string_map.get_ptr(name);
   // NOTE: we use make_constant here (not emit_constant) because we don't want
   // to emit a CONSTANT instruction right now. If we did so then the VM would
   // interpret it as a string literal.
@@ -467,7 +466,7 @@ void Parser::named_variable(std::string_view lexeme, bool can_assign) {
       // that's a runtime error). We can't error in the compiler because it
       // might be defined later after we're done compiling the current
       // function.
-      std::shared_ptr<ObjString> var_name_str = string_map.get_ptr(lexeme);
+      ObjString* var_name_str = string_map.get_ptr(lexeme);
       size_t constant_index = make_constant(var_name_str);
       emit_variable_access(lox::OpCode::SET_GLOBAL, lox::OpCode::GET_GLOBAL,
                            can_assign, constant_index);
@@ -660,7 +659,7 @@ void Parser::literal(bool _) {
 }
 
 void Parser::string(bool _) {
-  std::shared_ptr<ObjString> obj_str = string_map.get_ptr(previous.lexeme);
+  ObjString* obj_str = string_map.get_ptr(previous.lexeme);
   emit_constant(obj_str);
 }
 

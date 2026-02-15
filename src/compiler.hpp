@@ -32,8 +32,8 @@ struct Local {
 
 class Compiler {
 public:
-  Compiler(std::unique_ptr<ObjFunction> fnptr)
-      : scope_depth(0), current_function(std::move(fnptr)), is_top_level(true),
+  Compiler(ObjFunction* fnptr)
+      : scope_depth(0), current_function(fnptr), is_top_level(true),
         parent(nullptr) {
     // Reserve slot 0 of the stack for VM internal use. Note that this, on its
     // own, will mess with the VM's state since this does not actually push to
@@ -42,8 +42,8 @@ public:
     // executing the chunk.
     declare_local("");
   }
-  Compiler(std::unique_ptr<ObjFunction> fnptr, std::unique_ptr<Compiler> parent)
-      : scope_depth(0), current_function(std::move(fnptr)), is_top_level(false),
+  Compiler(ObjFunction* fnptr, std::unique_ptr<Compiler> parent)
+      : scope_depth(0), current_function(fnptr), is_top_level(false),
         parent(std::move(parent)) {
     declare_local("");
   }
@@ -66,9 +66,7 @@ public:
   bool is_at_top_level() const { return is_top_level; }
 
   size_t get_chunk_size() const { return current_function->chunk.size(); }
-  std::unique_ptr<ObjFunction> extract_current_function() {
-    return std::move(current_function);
-  }
+  ObjFunction* get_current_function() { return current_function; }
   void emit(uint8_t byte, size_t line) {
     current_function->chunk.write(byte, line);
   }
@@ -90,17 +88,17 @@ public:
 private:
   std::vector<Local> locals;
   size_t scope_depth;
-  std::unique_ptr<ObjFunction> current_function;
+  ObjFunction* current_function;
   bool is_top_level;
   std::unique_ptr<Compiler> parent;
 };
 
 class Parser {
 public:
-  Parser(std::unique_ptr<scanner::Scanner> scanner,
-         std::unique_ptr<ObjFunction> fnptr, StringMap& string_map);
+  Parser(std::unique_ptr<scanner::Scanner> scanner, ObjFunction* fnptr,
+         StringMap& string_map);
   void parse();
-  std::unique_ptr<ObjFunction> finalise_function();
+  ObjFunction* finalise_function();
 
 private:
   std::unique_ptr<scanner::Scanner> scanner;
@@ -163,7 +161,8 @@ private:
   // Pushes to the constant table and *additionally* emits the CONSTANT
   // instruction. Returns the index of the constant just added.
   size_t emit_constant(lox::Value value);
-  void emit_variable_access(lox::OpCode get_opcode, lox::OpCode set_opcode, bool can_assign, size_t index);
+  void emit_variable_access(lox::OpCode get_opcode, lox::OpCode set_opcode,
+                            bool can_assign, size_t index);
   size_t emit_jump(lox::OpCode jump_opcode);
   void patch_jump(size_t jump_byte, size_t jump_offset);
   void emit_call(size_t arg_count);

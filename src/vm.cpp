@@ -1,5 +1,6 @@
 #include "vm.hpp"
 #include "chunk.hpp"
+#include "gc.hpp"
 #include "stringmap.hpp"
 
 #include <chrono>
@@ -53,22 +54,19 @@ VM::VM(std::unique_ptr<scanner::Scanner> scanner, StringMap& interned_strings)
       parser() {
   call_frames.reserve(MAX_CALL_FRAMES);
   stack.reserve(MAX_STACK_SIZE);
-  auto top_level_fn = std::make_unique<ObjFunction>("#toplevel#", 0);
-  parser = std::make_unique<Parser>(std::move(scanner), std::move(top_level_fn),
+  auto top_level_fn = gc_new<ObjFunction>("#toplevel#", 0);
+  parser = std::make_unique<Parser>(std::move(scanner), top_level_fn,
                                     interned_strings);
 }
 
 lox::InterpretResult VM::invoke_toplevel() {
   // parse the top-level source code
   parser->parse();
-  std::unique_ptr<ObjFunction> top_level_fn_unique =
-      parser->finalise_function();
+  ObjFunction* top_level_fn = parser->finalise_function();
   // Earlier we reserved stack slot zero for the VM. We have to mirror that
   // here. Annoyingly, at this point we need to convert the unique_ptr to
   // a shared_ptr before we can run it
-  std::shared_ptr<ObjFunction> top_level_fn = std::move(top_level_fn_unique);
-  std::shared_ptr<ObjClosure> top_level_closure =
-      std::make_shared<ObjClosure>(top_level_fn);
+  ObjClosure* top_level_closure = gc_new<ObjClosure>(top_level_fn);
   stack_push(top_level_closure);
   call(top_level_closure, 0);
   // if finalise_function returned nullptr, there was a compile error
@@ -129,7 +127,7 @@ std::string VM::read_global_name() {
   lox::Value var_name_value = read_constant();
   // This is technically unsafe since the constant could be any Value, but
   // by construction of the parser it should always be a string.
-  return as_obj<ObjString>(var_name_value)->value;
+  return static_cast<ObjString*>(std::get<Obj*>(var_name_value))->value;
 }
 
 void VM::close_upvalues_after(Value* addr) {
@@ -180,7 +178,7 @@ void VM::error(const std::string& message) {
 // Create a new call frame and update the VM's internal state so that we are
 // in that new frame. This function doesn't actually RUN the code in the
 // function; that's left to the VM loop!
-void VM::call(std::shared_ptr<ObjClosure> callee, size_t arg_count) {
+void VM::call(ObjClosure* callee, size_t arg_count) {
   if (call_frame_ptr >= MAX_CALL_FRAMES) {
     throw std::runtime_error("stack overflow: too many nested function calls");
   }
@@ -204,7 +202,7 @@ void VM::call(std::shared_ptr<ObjClosure> callee, size_t arg_count) {
 VM& VM::define_native(
     const std::string& name, size_t arity,
     std::function<lox::Value(size_t, const lox::Value*)> function) {
-  auto native_fn = std::make_shared<ObjNativeFunction>(name, arity, function);
+  auto native_fn = gc_new<ObjNativeFunction>(name, arity, function);
   globals[name] = native_fn;
   return *this;
 }
@@ -237,8 +235,10 @@ InterpretResult VM::run() {
       }
       case OpCode::CLOSURE: {
         lox::Value c = read_constant();
-        auto c_fn = as_obj<ObjFunction>(c);
-        auto c_clos = std::make_shared<ObjClosure>(c_fn);
+        // We know that `c` has to be a ObjFunction* here, so we can use
+        // static_cast instead of dynamic_cast (even if it's a bit dangerous)
+        auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
+        auto c_clos = gc_new<ObjClosure>(c_fn);
         for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
           uint8_t is_local = read_byte();
           uint8_t index = read_byte();
@@ -272,7 +272,7 @@ InterpretResult VM::run() {
               c_clos->upvalues.push_back(*it);
             } else {
               // Not found so we can create a new upvalue
-              ObjUpvalue* upvalue = new ObjUpvalue(local_value);
+              ObjUpvalue* upvalue = gc_new<ObjUpvalue>(local_value);
               open_upvalues.push_back(upvalue);
               c_clos->upvalues.push_back(upvalue);
             }
@@ -453,19 +453,17 @@ InterpretResult VM::run() {
         // The function pointer should have been pushed to the stack before
         // the arguments.
         auto maybe_objptr = stack[stack_ptr - 1 - nargs];
-        if (!std::holds_alternative<std::shared_ptr<Obj>>(maybe_objptr)) {
+        if (!std::holds_alternative<Obj*>(maybe_objptr)) {
           throw std::runtime_error("objptr was not a pointer to Obj");
         }
-        auto maybe_closptr = std::get<std::shared_ptr<lox::Obj>>(maybe_objptr);
-        auto closptr = std::dynamic_pointer_cast<ObjClosure>(maybe_closptr);
+        auto maybe_closptr = std::get<Obj*>(maybe_objptr);
+        auto closptr = dynamic_cast<ObjClosure*>(maybe_closptr);
         if (closptr != nullptr) {
           call(closptr, nargs);
         } else {
-          auto native_fnptr =
-              std::dynamic_pointer_cast<ObjNativeFunction>(maybe_closptr);
+          auto native_fnptr = dynamic_cast<ObjNativeFunction*>(maybe_closptr);
           if (native_fnptr != nullptr) {
-            lox::Value retval =
-                native_fnptr->call(nargs, &stack[stack_ptr - nargs]);
+            Value retval = native_fnptr->call(nargs, &stack[stack_ptr - nargs]);
             // Pop the function and its arguments off the stack.
             stack_ptr -= (nargs + 1);
             // Push the return value onto the stack.

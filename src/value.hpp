@@ -2,15 +2,16 @@
 
 #include "chunk.hpp"
 #include "value_def.hpp"
-#include <iostream>
 #include <functional>
-#include <memory>
-#include <stdexcept>
+#include <iostream>
 #include <ostream>
+#include <stdexcept>
 
 namespace lox {
 
 enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
+
+enum class ObjType { STRING, FUNCTION, UPVALUE, CLOSURE, NATIVE_FUNCTION };
 
 // Forward declarations
 class StringMap; // Actually in stringmap.hpp
@@ -27,38 +28,45 @@ bool operator==(const Upvalue& a, const Upvalue& b);
 
 class Obj {
 public:
+  ObjType type;
+
   // NOTE: Marking a member function as `virtual` means that C++ will force
   // it to use dynamic dispatc (i.e., even if there's an Obj* pointer, it will
   // figure out at runtime which exact derived class it points to, and then
   // call the appropriate member function). If you don't do that, if the pointer
   // is statically typed as Obj*, it will always call Obj's member function,
   // not the version on the derived class.
+  //
   // In this case, the destructor has to be marked as virtual to ensure that
-  // when you delete a std::shared_ptr<Obj>, it calls the derived class's
-  // destructor rather than just Obj's destructor. The latter would lead to
-  // memory leaks.
+  // when you delete a Obj*, it calls the derived class's destructor rather
+  // than just Obj's destructor. The latter would lead to memory leaks.
+  //
   // We don't set the destructor to pure virtual (= 0) because then derived
   // classes would have to implement their own destructor, which is a faff.
   virtual ~Obj() = default;
   // NOTE: the (= 0) makes this a 'pure virtual' function, meaning that derived
   // classes must implement this function.
   virtual std::string to_repr() const = 0;
-  virtual Value add(const std::shared_ptr<Obj>& other,
-                    StringMap& string_map) = 0;
+  virtual Value add(const Obj* other, StringMap& string_map) = 0;
+
+  // NOTE: `protected` means this constructor can only be called by derived
+  // classes
+protected:
+  Obj(ObjType type) : type(type) {}
 };
 
 class ObjString : public Obj {
 public:
   std::string value;
+  ObjString(std::string_view str) : Obj(ObjType::STRING), value(str) {}
 
-  ObjString(std::string_view str) : value(std::string(str)) {}
 #ifdef LOX_DEBUG
   ~ObjString() override {
     std::cerr << "ObjString destructor called for \"" << value << "\"\n";
   }
 #endif
   std::string to_repr() const override { return "\"" + value + "\""; }
-  Value add(const std::shared_ptr<Obj>& other, StringMap& string_map) override;
+  Value add(const Obj* other, StringMap& string_map) override;
 };
 
 class ObjFunction : public Obj {
@@ -67,12 +75,13 @@ public:
   size_t arity;
   std::vector<Upvalue> upvalues;
   Chunk chunk;
-
   ObjFunction(std::string_view name, int arity)
-      : name(std::string(name)), arity(arity), chunk() {}
+      : Obj(ObjType::FUNCTION), name(std::string(name)), arity(arity), chunk() {
+  }
+
   std::string to_repr() const override { return "<fn " + name + ">"; }
   // NOTE: If you aren't using the parameters, you can just omit their names!
-  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+  Value add(const Obj*, StringMap&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
 };
@@ -81,26 +90,26 @@ class ObjUpvalue : public Obj {
 public:
   Value* location;
   Value closed; // when the upvalue is closed, we store the value here
+  ObjUpvalue(Value* location)
+      : Obj(ObjType::UPVALUE), location(location), closed(std::monostate()) {}
 
-  ObjUpvalue(Value* location) : location(location), closed(std::monostate()) {}
   std::string to_repr() const override { return "<upvalue>"; }
-  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+  Value add(const Obj*, StringMap&) override {
     throw std::runtime_error("loxc: add: cannot add upvalue objects");
   }
 };
 
 class ObjClosure : public Obj {
 public:
-  std::shared_ptr<ObjFunction> function;
+  ObjFunction* function;
   std::vector<ObjUpvalue*> upvalues;
+  ObjClosure(ObjFunction* function)
+      : Obj(ObjType::CLOSURE), function(function) {}
 
-  // upvalues will be filled at runtime.
-  ObjClosure(std::shared_ptr<ObjFunction> function)
-      : function(std::move(function)), upvalues() {}
   std::string to_repr() const override {
     return "<clos " + function->name + ">";
   }
-  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+  Value add(const Obj*, StringMap&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
 };
@@ -110,11 +119,12 @@ public:
   ObjNativeFunction(
       std::string_view name, size_t arity,
       std::function<Value(size_t arg_count, const Value* args)> function)
-      : name(std::string(name)), arity(arity), function(function) {}
+      : Obj(ObjType::NATIVE_FUNCTION), name(std::string(name)), arity(arity),
+        function(function) {}
 
   Value call(uint8_t arg_count, const Value* args);
   std::string to_repr() const override { return "<native fn " + name + ">"; }
-  Value add(const std::shared_ptr<Obj>&, StringMap&) override {
+  Value add(const Obj*, StringMap&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
 
@@ -125,20 +135,6 @@ private:
   // The actual C++ function that implements the native function.
   std::function<Value(size_t arg_count, const Value* args)> function;
 };
-
-// NOTE: Template functions have to go entirely into the header file for
-// reasons I don't fully yet get
-template <typename T> std::shared_ptr<T> as_obj(const Value& value) {
-  if (!std::holds_alternative<std::shared_ptr<Obj>>(value)) {
-    throw std::runtime_error("value is not an Obj");
-  }
-  auto objptr = std::get<std::shared_ptr<Obj>>(value);
-  auto dynptr = std::dynamic_pointer_cast<T>(objptr);
-  if (dynptr == nullptr) {
-    throw std::runtime_error("value is not a " + std::string(typeid(T).name()));
-  }
-  return dynptr;
-}
 
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);

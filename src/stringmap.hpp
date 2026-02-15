@@ -2,7 +2,6 @@
 
 #include "value.hpp"
 #include <functional>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -23,13 +22,13 @@ struct string_hash {
 class StringMap {
 public:
   StringMap() = default;
-  // Get a shared_ptr to the interned ObjString object. If the key doesn't
-  // already exist this function will also create and store a new ObjString
-  // in the map (but this is transparent to the caller).
-  std::shared_ptr<ObjString> get_ptr(std::string_view key);
+  // Get a pointer to the interned ObjString object. If the key doesn't already
+  // exist this function will also create and store a new ObjString in the map
+  // (but this is transparent to the caller).
+  ObjString* get_ptr(std::string_view key);
 
 private:
-  std::unordered_map<std::string, std::shared_ptr<ObjString>, string_hash, std::equal_to<>> map;
+  std::unordered_map<std::string, ObjString*, string_hash, std::equal_to<>> map;
 };
 
 } // namespace lox
