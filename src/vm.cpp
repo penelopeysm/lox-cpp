@@ -1,7 +1,6 @@
 #include "vm.hpp"
 #include "chunk.hpp"
 #include "gc.hpp"
-#include "stringmap.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -40,23 +39,20 @@ lox::InterpretResult interpret(std::string_view source) {
   std::unique_ptr<scanner::Scanner> scanner =
       std::make_unique<scanner::Scanner>(source);
   Chunk chunk;
-  // Create a map for string interning
-  StringMap string_map;
+  GC gc;
   // Create a top-level ObjFunction and invoke it.
-  VM vm(std::move(scanner), string_map);
+  VM vm(std::move(scanner), gc);
   vm.define_native("clock", 0, clock_native);
   vm.define_native("sleep", 1, sleep_native);
   return vm.invoke_toplevel();
 }
 
-VM::VM(std::unique_ptr<scanner::Scanner> scanner, StringMap& interned_strings)
-    : call_frame_ptr(0), stack_ptr(0), interned_strings(interned_strings),
-      parser() {
+VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
+    : call_frame_ptr(0), stack_ptr(0), gc(std::move(gc)), parser() {
   call_frames.reserve(MAX_CALL_FRAMES);
   stack.reserve(MAX_STACK_SIZE);
-  auto top_level_fn = gc_new<ObjFunction>("#toplevel#", 0);
-  parser = std::make_unique<Parser>(std::move(scanner), top_level_fn,
-                                    interned_strings);
+  auto top_level_fn = gc.alloc<ObjFunction>("#toplevel#", 0);
+  parser = std::make_unique<Parser>(std::move(scanner), top_level_fn, gc);
 }
 
 lox::InterpretResult VM::invoke_toplevel() {
@@ -66,7 +62,7 @@ lox::InterpretResult VM::invoke_toplevel() {
   // Earlier we reserved stack slot zero for the VM. We have to mirror that
   // here. Annoyingly, at this point we need to convert the unique_ptr to
   // a shared_ptr before we can run it
-  ObjClosure* top_level_closure = gc_new<ObjClosure>(top_level_fn);
+  ObjClosure* top_level_closure = gc.alloc<ObjClosure>(top_level_fn);
   stack_push(top_level_closure);
   call(top_level_closure, 0);
   // if finalise_function returned nullptr, there was a compile error
@@ -202,7 +198,7 @@ void VM::call(ObjClosure* callee, size_t arg_count) {
 VM& VM::define_native(
     const std::string& name, size_t arity,
     std::function<lox::Value(size_t, const lox::Value*)> function) {
-  auto native_fn = gc_new<ObjNativeFunction>(name, arity, function);
+  auto native_fn = gc.alloc<ObjNativeFunction>(name, arity, function);
   globals[name] = native_fn;
   return *this;
 }
@@ -238,7 +234,7 @@ InterpretResult VM::run() {
         // We know that `c` has to be a ObjFunction* here, so we can use
         // static_cast instead of dynamic_cast (even if it's a bit dangerous)
         auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
-        auto c_clos = gc_new<ObjClosure>(c_fn);
+        auto c_clos = gc.alloc<ObjClosure>(c_fn);
         for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
           uint8_t is_local = read_byte();
           uint8_t index = read_byte();
@@ -272,7 +268,7 @@ InterpretResult VM::run() {
               c_clos->upvalues.push_back(*it);
             } else {
               // Not found so we can create a new upvalue
-              ObjUpvalue* upvalue = gc_new<ObjUpvalue>(local_value);
+              ObjUpvalue* upvalue = gc.alloc<ObjUpvalue>(local_value);
               open_upvalues.push_back(upvalue);
               c_clos->upvalues.push_back(upvalue);
             }
@@ -319,7 +315,7 @@ InterpretResult VM::run() {
       case OpCode::ADD: {
         lox::Value b = stack_pop();
         lox::Value a = stack_pop();
-        stack_push(lox::add(a, b, interned_strings));
+        stack_push(lox::add(a, b, gc));
         break;
       }
       case OpCode::SUBTRACT: {

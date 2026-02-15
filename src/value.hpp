@@ -14,7 +14,7 @@ enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
 enum class ObjType { STRING, FUNCTION, UPVALUE, CLOSURE, NATIVE_FUNCTION };
 
 // Forward declarations
-class StringMap; // Actually in stringmap.hpp
+class GC;
 
 class Upvalue {
 public:
@@ -28,7 +28,11 @@ bool operator==(const Upvalue& a, const Upvalue& b);
 
 class Obj {
 public:
+  // For runtime type information.
   ObjType type;
+  // For our GC's intrusive linked list. This field is managed by the GC, not
+  // by the Obj itself.
+  Obj* next = nullptr;
 
   // NOTE: Marking a member function as `virtual` means that C++ will force
   // it to use dynamic dispatc (i.e., even if there's an Obj* pointer, it will
@@ -47,7 +51,7 @@ public:
   // NOTE: the (= 0) makes this a 'pure virtual' function, meaning that derived
   // classes must implement this function.
   virtual std::string to_repr() const = 0;
-  virtual Value add(const Obj* other, StringMap& string_map) = 0;
+  virtual Value add(const Obj* other, GC& gc) = 0;
 
   // NOTE: `protected` means this constructor can only be called by derived
   // classes
@@ -66,7 +70,7 @@ public:
   }
 #endif
   std::string to_repr() const override { return "\"" + value + "\""; }
-  Value add(const Obj* other, StringMap& string_map) override;
+  Value add(const Obj* other, GC& gc) override;
 };
 
 class ObjFunction : public Obj {
@@ -81,7 +85,7 @@ public:
 
   std::string to_repr() const override { return "<fn " + name + ">"; }
   // NOTE: If you aren't using the parameters, you can just omit their names!
-  Value add(const Obj*, StringMap&) override {
+  Value add(const Obj*, GC&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
 };
@@ -94,7 +98,7 @@ public:
       : Obj(ObjType::UPVALUE), location(location), closed(std::monostate()) {}
 
   std::string to_repr() const override { return "<upvalue>"; }
-  Value add(const Obj*, StringMap&) override {
+  Value add(const Obj*, GC&) override {
     throw std::runtime_error("loxc: add: cannot add upvalue objects");
   }
 };
@@ -109,7 +113,7 @@ public:
   std::string to_repr() const override {
     return "<clos " + function->name + ">";
   }
-  Value add(const Obj*, StringMap&) override {
+  Value add(const Obj*, GC&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
 };
@@ -124,7 +128,7 @@ public:
 
   Value call(uint8_t arg_count, const Value* args);
   std::string to_repr() const override { return "<native fn " + name + ">"; }
-  Value add(const Obj*, StringMap&) override {
+  Value add(const Obj*, GC&) override {
     throw std::runtime_error("loxc: add: cannot add function objects");
   }
 
@@ -138,7 +142,7 @@ private:
 
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);
-Value add(const Value& a, const Value& b, StringMap& string_map);
+Value add(const Value& a, const Value& b, GC& gc);
 
 // NOTE: Operators like these should (best) be declared in the same namespace
 // as the type they operate on. The compiler will be able to find them via

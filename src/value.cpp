@@ -1,5 +1,5 @@
 #include "value.hpp"
-#include "stringmap.hpp"
+#include "gc.hpp"
 #include <iostream>
 
 namespace {
@@ -23,7 +23,7 @@ std::ostream& operator<<(std::ostream& os, const Value& value) {
   return os;
 }
 
-Value ObjString::add(const Obj* other, StringMap& string_map) {
+Value ObjString::add(const Obj* other, GC& gc) {
   if (other->type != ObjType::STRING) {
     throw std::runtime_error(
         "loxc: add: cannot concatenate non-string to string");
@@ -31,7 +31,7 @@ Value ObjString::add(const Obj* other, StringMap& string_map) {
   // no choice here, we have to concatenate the strings which means allocating
   auto other_str = static_cast<const ObjString*>(other);
   std::string new_str = value + other_str->value;
-  return string_map.get_ptr(new_str);
+  return gc.get_string_ptr(new_str);
 }
 
 Value ObjNativeFunction::call(uint8_t arg_count, const Value* args) {
@@ -79,14 +79,14 @@ bool is_equal(const Value& a, const Value& b) {
   }
 }
 
-Value add(const Value& a, const Value& b, StringMap& string_map) {
+Value add(const Value& a, const Value& b, GC& gc) {
   if (std::holds_alternative<double>(a) && std::holds_alternative<double>(b)) {
     return std::get<double>(a) + std::get<double>(b);
   } else if (std::holds_alternative<Obj*>(a) &&
              std::holds_alternative<Obj*>(b)) {
     auto aptr = std::get<Obj*>(a);
     auto bptr = std::get<Obj*>(b);
-    return aptr->add(bptr, string_map);
+    return aptr->add(bptr, gc);
   } else {
     throw std::runtime_error(
         "operands to `+` must be two numbers or two strings");

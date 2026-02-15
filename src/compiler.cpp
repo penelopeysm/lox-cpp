@@ -1,7 +1,7 @@
 #include "compiler.hpp"
 #include "chunk.hpp"
-#include "scanner.hpp"
 #include "gc.hpp"
+#include "scanner.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -118,10 +118,9 @@ size_t Compiler::declare_upvalue(Upvalue upvalue) {
 using lox::scanner::Scanner;
 using lox::scanner::TokenType;
 
-Parser::Parser(std::unique_ptr<Scanner> scanner, ObjFunction* fnptr,
-               StringMap& string_map)
+Parser::Parser(std::unique_ptr<Scanner> scanner, ObjFunction* fnptr, GC& gc)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
-      previous(SENTINEL_EOF), errmsg(std::nullopt), string_map(string_map),
+      previous(SENTINEL_EOF), errmsg(std::nullopt), gc(gc),
       compiler(std::make_unique<Compiler>(fnptr)) {}
 
 void Parser::advance() {
@@ -142,7 +141,7 @@ void Parser::function() {
   // updated on the fly later when we parse the function parameters.
   int arity = 0;
   // TODO: This copies the string. Do we need to?
-  auto new_fnptr = gc_new<ObjFunction>(fn_name, arity);
+  auto new_fnptr = gc.alloc<ObjFunction>(fn_name, arity);
   auto new_compiler =
       std::make_unique<Compiler>(new_fnptr, std::move(compiler));
   compiler = std::move(new_compiler);
@@ -407,7 +406,7 @@ void Parser::define_variable(std::string_view var_name) {
 }
 
 void Parser::define_global_variable(std::string_view name) {
-  ObjString* var_name_str = string_map.get_ptr(name);
+  ObjString* var_name_str = gc.get_string_ptr(name);
   // NOTE: we use make_constant here (not emit_constant) because we don't want
   // to emit a CONSTANT instruction right now. If we did so then the VM would
   // interpret it as a string literal.
@@ -466,7 +465,7 @@ void Parser::named_variable(std::string_view lexeme, bool can_assign) {
       // that's a runtime error). We can't error in the compiler because it
       // might be defined later after we're done compiling the current
       // function.
-      ObjString* var_name_str = string_map.get_ptr(lexeme);
+      ObjString* var_name_str = gc.get_string_ptr(lexeme);
       size_t constant_index = make_constant(var_name_str);
       emit_variable_access(lox::OpCode::SET_GLOBAL, lox::OpCode::GET_GLOBAL,
                            can_assign, constant_index);
@@ -659,7 +658,7 @@ void Parser::literal(bool _) {
 }
 
 void Parser::string(bool _) {
-  ObjString* obj_str = string_map.get_ptr(previous.lexeme);
+  ObjString* obj_str = gc.get_string_ptr(previous.lexeme);
   emit_constant(obj_str);
 }
 

@@ -1,6 +1,6 @@
 #include "chunk.hpp"
+#include "gc.hpp"
 #include "scanner.hpp"
-#include "stringmap.hpp"
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -95,8 +95,7 @@ private:
 
 class Parser {
 public:
-  Parser(std::unique_ptr<scanner::Scanner> scanner, ObjFunction* fnptr,
-         StringMap& string_map);
+  Parser(std::unique_ptr<scanner::Scanner> scanner, ObjFunction* fnptr, GC& gc);
   void parse();
   ObjFunction* finalise_function();
 
@@ -105,7 +104,7 @@ private:
   scanner::Token current;
   scanner::Token previous;
   std::optional<std::pair<std::string, size_t>> errmsg;
-  StringMap& string_map;
+  GC& gc;
   std::unique_ptr<Compiler> compiler;
 
   // Interact with scanner
