@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ostream>
+#include <string_view>
 #include <vector>
 
 namespace lox {

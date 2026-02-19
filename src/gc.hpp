@@ -43,6 +43,8 @@ public:
     obj->next = head;
     // and make it be the new head
     head = obj;
+    // Update memory usage
+    bytes_allocated += sizeof(T);
     return obj;
   }
 
@@ -71,6 +73,7 @@ private:
   StringMap interned_strings;
   std::vector<Obj*> grey_stack;
   std::function<void()> alloc_callback = nullptr;
+  size_t bytes_allocated;
 };
 
 } // namespace lox

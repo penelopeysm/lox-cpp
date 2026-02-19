@@ -1,9 +1,9 @@
 #include "scanner.hpp"
-#include <cctype>
 #include <ostream>
+#include <cctype>
+#include <format>
 #include <sstream>
 #include <string>
-#include <format>
 
 // This is temporary, remove this when we don't need to debug print stuff
 #include <iostream>

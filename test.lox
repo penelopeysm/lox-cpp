@@ -1,18 +1,12 @@
-fun outer() {
-  var x = "value";
-  fun middle() {
-    fun inner() {
-      print x;
-    }
+var a = "x";
 
-    print "create inner closure";
-    return inner;
-  }
-
-  print "return from outer";
-  return middle;
+fun f() {
+   fun g() {}
+   return g;
 }
 
-var mid = outer();
-var in = mid();
-in();
+for (var i = 0; i < 10000; i = i + 1) {
+    a = f();
+}
+
+print a;

@@ -4,8 +4,13 @@
 #include "value_def.hpp"
 #include <functional>
 #include <iostream>
-#include <ostream>
+#include <stddef.h>
 #include <stdexcept>
+#include <stdint.h>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
 
 namespace lox {
 

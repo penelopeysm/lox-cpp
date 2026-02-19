@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <cstdlib>
 #include <format>
-#include <iostream>
+#include <new>
+#include <ostream>
 #include <stdexcept>
+#include <string>
 
 // NOTE: This is an 'anonymous namespace': everything defined inside here can
 // be used in the same file without qualification, but is not visible outside

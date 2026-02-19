@@ -1,6 +1,6 @@
 #include "value.hpp"
 #include "gc.hpp"
-#include <iostream>
+#include <ostream>
 
 namespace {
 struct LoxValuePrinter {

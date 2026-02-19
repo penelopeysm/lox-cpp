@@ -59,10 +59,11 @@ void GC::gc() {
 
 #ifdef LOX_GC_DEBUG
   std::cerr << "\n\n\n        GC: starting mark-and-sweep\n";
-  list_objects();
+  // list_objects();
 #endif
 
-  size_t n_deleted = 0;
+  size_t nobjs_deleted = 0;
+  size_t nbytes_deleted = 0;
 
   // Propagate grey markings forward.
   while (!grey_stack.empty()) {
@@ -105,7 +106,7 @@ void GC::gc() {
     }
 
 #ifdef LOX_GC_DEBUG
-    list_objects();
+    // list_objects();
 #endif
   }
 
@@ -135,8 +136,11 @@ void GC::gc() {
       }
 
       // Delete
+      size_t bytes = sizeof(*objptr);
+      bytes_allocated -= bytes;
+      nbytes_deleted += bytes;
       delete objptr;
-      n_deleted++;
+      nobjs_deleted++;
       objptr = next;
 
     } else {
@@ -148,7 +152,8 @@ void GC::gc() {
   }
 
 #ifdef LOX_GC_DEBUG
-  std::cerr << "        GC: finished mark-and-sweep, deleted " << n_deleted << " objects\n\n\n";
+  std::cerr << "        GC: finished mark-and-sweep, deleted " << nobjs_deleted
+            << " objects, " << nbytes_deleted << " bytes\n\n\n";
 #endif
 }
 
