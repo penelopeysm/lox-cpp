@@ -104,6 +104,13 @@ std::optional<size_t> Compiler::resolve_upvalue(std::string_view name) {
   return std::nullopt;
 }
 
+void Compiler::mark_function_as_grey(GC& _gc) {
+  _gc.mark_as_grey(current_function);
+  if (parent != nullptr) {
+    parent->mark_function_as_grey(_gc);
+  }
+}
+
 size_t Compiler::declare_upvalue(Upvalue upvalue) {
   // Check if this upvalue has already been declared.
   for (size_t i = 0; i < current_function->upvalues.size(); i++) {
@@ -219,6 +226,18 @@ void Parser::call(bool) {
     }
   }
   emit_call(arg_count);
+}
+
+void Parser::mark_function_as_grey() {
+  // You might ask: Why can `compiler` ever be nullptr? Well, inside
+  // `finalise_function` we set `compiler = compiler->get_parent()`. If there
+  // is no parent, then compiler can be set to nullptr. What's worse is
+  // immediately after finalise_function is called, we have to create a new
+  // ObjClosure from the function object we just compiled, and that might
+  // trigger GC, which will call this function.
+  if (compiler != nullptr) {
+    compiler->mark_function_as_grey(gc);
+  }
 }
 
 ObjFunction* Parser::finalise_function() {

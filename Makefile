@@ -9,7 +9,7 @@ BUILD ?= debug
 # -g is used to include debug information in the compiled binaries, useful for
 # LLDB or else you just get a sea of assembly code!
 ifeq ($(BUILD),debug)
-	CXXFLAGS += -g -O0 -DLOX_DEBUG
+	CXXFLAGS += -g -O0 -DLOX_DEBUG -DLOX_GC_DEBUG
 else ifeq ($(BUILD),release)
 	CXXFLAGS += -O3
 else

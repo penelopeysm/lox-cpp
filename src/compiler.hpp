@@ -48,6 +48,8 @@ public:
     declare_local("");
   }
 
+  void mark_function_as_grey(GC& _gc);
+
   void begin_scope() { scope_depth++; }
   // Returns a sequence of bools indicating whether each local variable popped
   // was captured by a nested function. The caller can use this information to
@@ -98,6 +100,7 @@ public:
   Parser(std::unique_ptr<scanner::Scanner> scanner, ObjFunction* fnptr, GC& gc);
   void parse();
   ObjFunction* finalise_function();
+  void mark_function_as_grey();
 
 private:
   std::unique_ptr<scanner::Scanner> scanner;

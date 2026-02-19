@@ -1,19 +1,18 @@
-var globalOne;
-var globalTwo;
+fun outer() {
+  var x = "value";
+  fun middle() {
+    fun inner() {
+      print x;
+    }
 
-fun main() {
-  for (var a = 1; a <= 2; a = a + 1) {
-    fun closure() {
-      print a;
-    }
-    if (globalOne == nil) {
-      globalOne = closure;
-    } else {
-      globalTwo = closure;
-    }
+    print "create inner closure";
+    return inner;
   }
+
+  print "return from outer";
+  return middle;
 }
 
-main();
-globalOne();
-globalTwo();
+var mid = outer();
+var in = mid();
+in();

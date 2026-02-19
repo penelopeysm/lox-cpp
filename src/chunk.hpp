@@ -63,10 +63,13 @@ public:
   size_t debuginfo_size() const;
   size_t debuginfo_at(size_t bytecode_offset) const;
 
+  const std::vector<lox::Value>& get_constants() const { return constants; }
+
   std::ostream& hex_dump(std::ostream& os, std::string_view fn_name) const;
   // Disassemble a single instruction at the given offset, and return the new
   // offset.
-  size_t disassemble(std::ostream& os, size_t offset, std::string_view fn_name) const;
+  size_t disassemble(std::ostream& os, size_t offset,
+                     std::string_view fn_name) const;
 
 private:
   // NOTE: std::vector will resize itself automatically when push_back needs

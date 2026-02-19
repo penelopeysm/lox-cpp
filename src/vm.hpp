@@ -47,13 +47,12 @@ public:
 
 private:
   std::vector<CallFrame> call_frames;
-  size_t call_frame_ptr;
   // NOTE: We use std::vector here instead of std::stack because the latter does
   // not provide random access (you can only access the top element).
   std::vector<lox::Value> stack;
   // This is zero-indexed.
-  size_t stack_ptr;
-  GC gc;
+  size_t stack_size;
+  GC _gc;
   // maps from the name of a global variable to its value
   std::unordered_map<std::string, lox::Value> globals;
   std::unique_ptr<Parser> parser;
@@ -61,17 +60,20 @@ private:
   // of the stack slot that they point to
   std::vector<ObjUpvalue*> open_upvalues;
 
-  CallFrame& current_frame() { return call_frames[call_frame_ptr]; }
+  CallFrame& current_frame() { return call_frames.back(); }
   Chunk& get_chunk() { return current_frame().closure->function->chunk; }
 
   void close_upvalues_after(Value* addr);
+
+  // Run garbage collection
+  void gc();
 
   lox::Value get_local_variable(size_t local_index) {
     // Because local_index is an index into the current function's locals,
     // which may not start at zero (but instead start at
     // current_frame().stack_start), we need to offset it by stack_start.
     size_t stack_index = current_frame().stack_start + local_index;
-    if (stack_index >= stack_ptr) {
+    if (stack_index >= stack_size) {
       error("get_local_variable: invalid local variable index");
     }
     return stack[stack_index];
@@ -79,7 +81,7 @@ private:
 
   lox::Value* get_local_variable_address(size_t local_index) {
     size_t stack_index = current_frame().stack_start + local_index;
-    if (stack_index >= stack_ptr) {
+    if (stack_index >= stack_size) {
       error("get_local_variable: invalid local variable index");
     }
     return &stack[current_frame().stack_start + local_index];
@@ -87,7 +89,7 @@ private:
 
   void set_local_variable(size_t local_index, const lox::Value& value) {
     size_t stack_index = current_frame().stack_start + local_index;
-    if (stack_index >= stack_ptr) {
+    if (stack_index >= stack_size) {
       error("set_local_variable: invalid local variable index");
     }
     stack[stack_index] = value;

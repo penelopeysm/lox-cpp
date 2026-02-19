@@ -30,9 +30,10 @@ class Obj {
 public:
   // For runtime type information.
   ObjType type;
-  // For our GC's intrusive linked list. This field is managed by the GC, not
-  // by the Obj itself.
+  // For our GC's intrusive linked list. These fields are managed by the GC,
+  // not by the Obj itself.
   Obj* next = nullptr;
+  bool is_marked = false;
 
   // NOTE: Marking a member function as `virtual` means that C++ will force
   // it to use dynamic dispatc (i.e., even if there's an Obj* pointer, it will
@@ -63,12 +64,6 @@ class ObjString : public Obj {
 public:
   std::string value;
   ObjString(std::string_view str) : Obj(ObjType::STRING), value(str) {}
-
-#ifdef LOX_DEBUG
-  ~ObjString() override {
-    std::cerr << "ObjString destructor called for \"" << value << "\"\n";
-  }
-#endif
   std::string to_repr() const override { return "\"" + value + "\""; }
   Value add(const Obj* other, GC& gc) override;
 };

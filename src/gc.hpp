@@ -30,10 +30,15 @@ class GC {
 public:
   // Central allocation function
   template <typename T, typename... Args> T* alloc(Args&&... args) {
+    if (alloc_callback != nullptr) {
+      alloc_callback();
+    }
+
     static_assert(std::is_base_of_v<Obj, T>,
                   "GC::alloc can only be used to allocate subclasses of Obj");
     // Create new object
     T* obj = new T(std::forward<Args>(args)...);
+    obj->is_marked = false;
     // and make it point to the old head
     obj->next = head;
     // and make it be the new head
@@ -41,13 +46,31 @@ public:
     return obj;
   }
 
+  // Mark a value as grey (i.e., reachable but not yet fully processed)
+  void mark_as_grey(const Value& value);
+  void mark_as_grey(Obj* objptr);
+
+  // For debugging purposes, list all objects
+  void list_objects() const;
+
+  void unmark_all_objects();
+
+  // Run the garbage collector.
+  void gc();
+
   // Get a pointer to an interned ObjString object, creating it if necessary.
   ObjString* get_string_ptr(std::string_view);
+
+  void set_alloc_callback(std::function<void()> callback) {
+    alloc_callback = callback;
+  }
 
 private:
   // First object in the linked list of all objects tracked by the GC.
   Obj* head = nullptr;
   StringMap interned_strings;
+  std::vector<Obj*> grey_stack;
+  std::function<void()> alloc_callback = nullptr;
 };
 
 } // namespace lox
