@@ -63,8 +63,11 @@ lox::InterpretResult VM::invoke_toplevel() {
   parser->parse();
   ObjFunction* top_level_fn = parser->finalise_function();
   // Earlier we reserved stack slot zero for the VM. We have to mirror that
-  // here. 
+  // here. We push top_level_fn to the stack first so that it doesn't get
+  // cleaned up during the call to _gc.alloc.
+  stack_push(top_level_fn);
   ObjClosure* top_level_closure = _gc.alloc<ObjClosure>(top_level_fn);
+  stack_pop();
   stack_push(top_level_closure);
   call(top_level_closure, 0);
   // if finalise_function returned nullptr, there was a compile error
@@ -234,7 +237,13 @@ InterpretResult VM::run() {
         // We know that `c` has to be a ObjFunction* here, so we can use
         // static_cast instead of dynamic_cast (even if it's a bit dangerous)
         auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
+        stack_push(c_fn); // avoid GCing the function while the closure is being
+                          // created
         auto c_clos = _gc.alloc<ObjClosure>(c_fn);
+        stack_pop();
+        // we'll push the closure to the stack first even though it's not
+        // complete, to avoid it being GC'd while we're making the upvalues.
+        stack_push(c_clos);
         for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
           uint8_t is_local = read_byte();
           uint8_t index = read_byte();
@@ -279,7 +288,6 @@ InterpretResult VM::run() {
                 current_frame().closure->upvalues.at(index));
           }
         }
-        stack_push(c_clos);
         break;
       }
       case OpCode::GET_UPVALUE: {
