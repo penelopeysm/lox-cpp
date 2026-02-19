@@ -8,8 +8,20 @@
 #include <thread>
 
 namespace {
-int16_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
-  return (static_cast<int16_t>(high_byte) << 8) | low_byte;
+ptrdiff_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
+  // NOTE: we have to be really careful here about how we do the static_cast!
+  // The high and low bytes are encoded including the sign information as the
+  // most significant bit of the high byte. So we need to combine them into a single
+  // int16_t FIRST, so that the sign information is in the right place (i.e. the most
+  // significant bit of the int16_t), and then only convert to ptrdiff_t.
+  //
+  // If we did
+  //   static_cast<ptrdiff_t>(high_byte) << 8 | low_byte
+  //
+  // the sign bit would not be in the most significant bit of the ptrdiff_t, and so
+  // we would end up with a completely different number.
+  int16_t jump_offset = (static_cast<int16_t>(high_byte) << 8) | low_byte;
+  return static_cast<ptrdiff_t>(jump_offset);
 }
 constexpr size_t MAX_CALL_FRAMES = 64;
 constexpr size_t MAX_STACK_SIZE = 64 * UINT8_MAX;
@@ -41,7 +53,7 @@ lox::InterpretResult interpret(std::string_view source) {
   Chunk chunk;
   GC gc;
   // Create a top-level ObjFunction and invoke it.
-  VM vm(std::move(scanner), gc);
+  VM vm(std::move(scanner), std::move(gc));
   vm.define_native("clock", 0, clock_native);
   vm.define_native("sleep", 1, sleep_native);
   return vm.invoke_toplevel();
@@ -51,7 +63,7 @@ VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
     : stack_size(0), _gc(std::move(gc)), parser() {
   call_frames.reserve(MAX_CALL_FRAMES);
   stack.reserve(MAX_STACK_SIZE);
-  auto top_level_fn = _gc.alloc<ObjFunction>("#toplevel#", 0);
+  auto top_level_fn = _gc.alloc<ObjFunction>("#toplevel#", size_t(0));
   parser = std::make_unique<Parser>(std::move(scanner), top_level_fn, _gc);
 
   // Aggressive GC: run it every time we allocate
@@ -442,7 +454,7 @@ InterpretResult VM::run() {
         if (!lox::is_truthy(condition)) {
           uint8_t high_byte = read_byte();
           uint8_t low_byte = read_byte();
-          int16_t jump_offset = get_jump_offset(high_byte, low_byte);
+          ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
           current_frame().shift_ip(jump_offset);
         } else {
           current_frame().shift_ip(2); // skip the jump offset bytes
@@ -452,7 +464,7 @@ InterpretResult VM::run() {
       case OpCode::JUMP: {
         uint8_t high_byte = read_byte();
         uint8_t low_byte = read_byte();
-        size_t jump_offset = get_jump_offset(high_byte, low_byte);
+        ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
         current_frame().shift_ip(jump_offset);
         break;
       }
@@ -527,22 +539,25 @@ InterpretResult VM::run() {
 }
 
 void VM::gc() {
-  // Mark roots as grey.
-  for (size_t i = 0; i < stack_size; ++i) {
-    _gc.mark_as_grey(stack[i]);
-  }
-  for (const auto& [_, global_value] : globals) {
-    _gc.mark_as_grey(global_value);
-  }
-  for (const auto& frame : call_frames) {
-    _gc.mark_as_grey(frame.closure);
-  }
-  for (const auto& upvalue : open_upvalues) {
-    _gc.mark_as_grey(upvalue);
-  }
-  parser->mark_function_as_grey();
+  if (_gc.should_gc()) {
 
-  _gc.gc();
+    // Mark roots as grey.
+    for (size_t i = 0; i < stack_size; ++i) {
+      _gc.mark_as_grey(stack[i]);
+    }
+    for (const auto& [_, global_value] : globals) {
+      _gc.mark_as_grey(global_value);
+    }
+    for (const auto& frame : call_frames) {
+      _gc.mark_as_grey(frame.closure);
+    }
+    for (const auto& upvalue : open_upvalues) {
+      _gc.mark_as_grey(upvalue);
+    }
+    parser->mark_function_as_grey();
+
+    _gc.gc();
+  }
 }
 
 } // namespace lox

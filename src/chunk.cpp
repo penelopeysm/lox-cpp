@@ -287,6 +287,8 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
     return offset + 2;
   }
   }
+  throw std::runtime_error("loxc: Chunk::disassemble: unknown opcode " +
+                           std::to_string(instruction));
 }
 
 std::ostream& lox::Chunk::hex_dump(std::ostream& os,

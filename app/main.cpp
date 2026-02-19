@@ -28,8 +28,12 @@ void runFile(const char* path) {
     exit(74);
   }
   std::streamsize size = file.tellg();
+  if (size < 0) {
+    std::cerr << "Could not get size of file \"" << path << "\"\n";
+    exit(74);
+  }
   file.seekg(0, std::ios::beg);
-  std::string source(size, '\0');
+  std::string source(static_cast<size_t>(size), '\0');
   // NOTE: source.data() returns the raw char* pointer which is what
   // std::ifstream::read wants.
   if (!file.read(source.data(), size)) {

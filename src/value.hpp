@@ -39,6 +39,7 @@ public:
   // not by the Obj itself.
   Obj* next = nullptr;
   bool is_marked = false;
+  size_t size = 0;
 
   // NOTE: Marking a member function as `virtual` means that C++ will force
   // it to use dynamic dispatc (i.e., even if there's an Obj* pointer, it will
@@ -79,7 +80,7 @@ public:
   size_t arity;
   std::vector<Upvalue> upvalues;
   Chunk chunk;
-  ObjFunction(std::string_view name, int arity)
+  ObjFunction(std::string_view name, size_t arity)
       : Obj(ObjType::FUNCTION), name(std::string(name)), arity(arity), chunk() {
   }
 

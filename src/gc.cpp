@@ -19,6 +19,14 @@ ObjString* GC::get_string_ptr(std::string_view key) {
   return it->second;
 }
 
+bool GC::should_gc() {
+#ifdef LOX_GC_DEBUG
+  return true;
+#else
+  return bytes_allocated > next_gc_threshold;
+#endif
+}
+
 void GC::mark_as_grey(const lox::Value& value) {
   if (std::holds_alternative<lox::Obj*>(value)) {
     lox::Obj* obj = std::get<lox::Obj*>(value);
@@ -136,7 +144,7 @@ void GC::gc() {
       }
 
       // Delete
-      size_t bytes = sizeof(*objptr);
+      size_t bytes = objptr->size;
       bytes_allocated -= bytes;
       nbytes_deleted += bytes;
       delete objptr;
@@ -155,6 +163,9 @@ void GC::gc() {
   std::cerr << "        GC: finished mark-and-sweep, deleted " << nobjs_deleted
             << " objects, " << nbytes_deleted << " bytes\n\n\n";
 #endif
+
+  // Update the GC threshold.
+  next_gc_threshold = bytes_allocated * 2;
 }
 
 } // namespace lox

@@ -23,7 +23,6 @@ class StringMap {
 public:
   StringMap() = default;
   std::unordered_map<std::string, ObjString*, string_hash, std::equal_to<>> map;
-  ObjString* get_ptr(std::string_view key);
 };
 
 class GC {
@@ -44,9 +43,25 @@ public:
     // and make it be the new head
     head = obj;
     // Update memory usage
-    bytes_allocated += sizeof(T);
+    size_t obj_size = sizeof(T);
+    bytes_allocated += obj_size;
+    obj->size = obj_size;
     return obj;
   }
+
+  // We want GCs to be movable but non-copyable. This is because GC contains a pointer Obj* head
+  // which is not safe to copy (if we copy a GC to another one, then delete the first, the
+  // second GC will have a dangling pointer). But moving a GC is fine.
+  // The methods with `const GC&` are copy constructors and copy assignment operators
+  GC(const GC&) = delete;
+  GC& operator=(const GC&) = delete;
+  GC(GC&&) = default;
+  GC& operator=(GC&&) = default;
+  // Once we define any constructor (including the copy/move ones), the default
+  // constructor is not generated, so we need to explicitly define it.
+  GC() = default;
+
+  bool should_gc();
 
   // Mark a value as grey (i.e., reachable but not yet fully processed)
   void mark_as_grey(const Value& value);
@@ -54,8 +69,6 @@ public:
 
   // For debugging purposes, list all objects
   void list_objects() const;
-
-  void unmark_all_objects();
 
   // Run the garbage collector.
   void gc();
@@ -73,7 +86,8 @@ private:
   StringMap interned_strings;
   std::vector<Obj*> grey_stack;
   std::function<void()> alloc_callback = nullptr;
-  size_t bytes_allocated;
+  size_t bytes_allocated = 0;
+  size_t next_gc_threshold = 1024 * 1024; // 1MB
 };
 
 } // namespace lox

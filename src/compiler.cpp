@@ -68,9 +68,10 @@ bool Compiler::declare_local(std::string_view name) {
 }
 
 std::optional<size_t> Compiler::resolve_local(std::string_view name) {
-  for (int i = locals.size() - 1; i >= 0; --i) {
-    if (locals[i].name == name) {
-      return i;
+  for (int i = static_cast<int>(locals.size()) - 1; i >= 0; --i) {
+    size_t u = static_cast<size_t>(i);
+    if (locals[u].name == name) {
+      return u;
     }
   }
   return std::nullopt;
@@ -146,7 +147,7 @@ void Parser::function() {
   consume_or_error(TokenType::LEFT_PAREN, "expected '(' after function name");
   // Create the function object and a new compiler for it. The arity will be
   // updated on the fly later when we parse the function parameters.
-  int arity = 0;
+  size_t arity = 0;
   // TODO: This copies the string. Do we need to?
   auto new_fnptr = gc.alloc<ObjFunction>(fn_name, arity);
   auto new_compiler =

@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <ostream>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -23,7 +24,17 @@ public:
   CallFrame(ObjClosure* clos, size_t ip, size_t stack_start)
       : closure(std::move(clos)), ip(ip), stack_start(stack_start) {}
   uint8_t read_byte() { return closure->function->chunk.at(ip++); }
-  void shift_ip(int offset) { ip += offset; }
+  void shift_ip(ptrdiff_t offset) {
+    ptrdiff_t ip_signed = static_cast<ptrdiff_t>(ip);
+    ip_signed += offset;
+    if (ip_signed < 0) {
+      throw std::runtime_error("shift_ip: negative offset out of bounds");
+    }
+    ip = static_cast<size_t>(ip_signed);
+    if (ip > closure->function->chunk.size()) {
+      throw std::runtime_error("shift_ip: positive offset out of bounds");
+    }
+  }
   size_t get_current_debuginfo_line() {
     return closure->function->chunk.debuginfo_at(ip - 1);
   }

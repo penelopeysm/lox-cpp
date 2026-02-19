@@ -1,7 +1,7 @@
 #include "scanner.hpp"
-#include <ostream>
 #include <cctype>
 #include <format>
+#include <ostream>
 #include <sstream>
 #include <string>
 
@@ -129,12 +129,14 @@ void Scanner::scan_and_print() {
 }
 
 Token Scanner::make_token(TokenType t) {
-  return Token(t, std::string_view(start, current - start), line);
+  return Token(t, std::string_view(start, static_cast<size_t>(current - start)),
+               line);
 }
 Token Scanner::make_token(TokenType t, size_t skip_begin, size_t skip_end) {
   return Token(t,
                std::string_view(start + skip_begin,
-                                current - start - skip_end - skip_begin),
+                                (static_cast<size_t>(current - start) -
+                                 skip_end - skip_begin)),
                line);
 }
 
@@ -231,7 +233,7 @@ Token Scanner::scan_token() {
   // Sorry. Better things to spend my time on.
   if (std::isalpha(c) || c == '_') {
     consume_while([](char ch) { return std::isalnum(ch) || ch == '_'; });
-    std::string_view text(start, current - start);
+    std::string_view text(start, static_cast<size_t>(current - start));
     if (text == "and")
       return make_token(TokenType::AND);
     if (text == "class")

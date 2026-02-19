@@ -30,7 +30,11 @@ Value ObjString::add(const Obj* other, GC& gc) {
   }
   // no choice here, we have to concatenate the strings which means allocating
   auto other_str = static_cast<const ObjString*>(other);
+  // SUBTLE NOT-BUG: gc.get_string_ptr has to allocate, which means that it might trigger GC,
+  // which in turn might clean up the old strings. But that's fine, because this line will
+  // extract the data from the old strings and concatenate them,
   std::string new_str = value + other_str->value;
+  // so even if GC triggers here, we won't run into segfaults.
   return gc.get_string_ptr(new_str);
 }
 
