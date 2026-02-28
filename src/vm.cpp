@@ -11,15 +11,16 @@ namespace {
 ptrdiff_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
   // NOTE: we have to be really careful here about how we do the static_cast!
   // The high and low bytes are encoded including the sign information as the
-  // most significant bit of the high byte. So we need to combine them into a single
-  // int16_t FIRST, so that the sign information is in the right place (i.e. the most
-  // significant bit of the int16_t), and then only convert to ptrdiff_t.
+  // most significant bit of the high byte. So we need to combine them into a
+  // single int16_t FIRST, so that the sign information is in the right place
+  // (i.e. the most significant bit of the int16_t), and then only convert to
+  // ptrdiff_t.
   //
   // If we did
   //   static_cast<ptrdiff_t>(high_byte) << 8 | low_byte
   //
-  // the sign bit would not be in the most significant bit of the ptrdiff_t, and so
-  // we would end up with a completely different number.
+  // the sign bit would not be in the most significant bit of the ptrdiff_t, and
+  // so we would end up with a completely different number.
   int16_t jump_offset = (static_cast<int16_t>(high_byte) << 8) | low_byte;
   return static_cast<ptrdiff_t>(jump_offset);
 }
@@ -60,14 +61,19 @@ lox::InterpretResult interpret(std::string_view source) {
 }
 
 VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
-    : stack_size(0), _gc(std::move(gc)), parser() {
+    : _gc(std::move(gc)), parser() {
   call_frames.reserve(MAX_CALL_FRAMES);
+  // NOTE: By reserving memory here we avoid having to reallocate when we call
+  // push_back. That means that we don't need to do what the book does by having
+  // stack_pop decrement a pointer: we can just make stack_pop call pop_back()
+  // on the stack. That allows us to keep track of the stack size using
+  // stack.size() rather than a separate variable, which can get out of sync.
   stack.reserve(MAX_STACK_SIZE);
   auto top_level_fn = _gc.alloc<ObjFunction>("#toplevel#", size_t(0));
   parser = std::make_unique<Parser>(std::move(scanner), top_level_fn, _gc);
 
   // Aggressive GC: run it every time we allocate
-  _gc.set_alloc_callback([this]() { this->gc(); });
+  _gc.set_alloc_callback([this]() { this->maybe_gc(); });
 }
 
 lox::InterpretResult VM::invoke_toplevel() {
@@ -101,43 +107,39 @@ lox::Value VM::read_constant() {
 }
 
 VM& VM::stack_reset() {
-  stack_size = 0;
+  stack.clear();
   return *this;
 }
 
 VM& VM::stack_push(const lox::Value& value) {
-  if (stack_size >= MAX_STACK_SIZE) {
+  if (stack.size() >= MAX_STACK_SIZE) {
     error("stack overflow");
   }
-  if (stack_size >= stack.size()) {
-    stack.push_back(value);
-  } else {
-    stack[stack_size] = value;
-  }
-  stack_size++;
+  stack.push_back(value);
   return *this;
 }
 
 lox::Value* VM::stack_top_address() {
-  if (stack_size == 0) {
+  if (stack.empty()) {
     error("stack_top_address: stack underflow");
   }
-  return &stack[stack_size - 1];
+  return &stack.back();
 }
 
 lox::Value VM::stack_pop() {
-  if (stack_size == 0) {
+  if (stack.empty()) {
     error("stack_pop: stack underflow");
   }
-  stack_size--;
-  return stack[stack_size];
+  Value value = std::move(stack.back());
+  stack.pop_back();
+  return value;
 }
 
 lox::Value VM::stack_peek() {
-  if (stack_size == 0) {
+  if (stack.empty()) {
     error("stack_peek: stack underflow");
   }
-  return stack[stack_size - 1];
+  return stack.back();
 }
 
 std::string VM::read_global_name() {
@@ -149,12 +151,14 @@ std::string VM::read_global_name() {
 
 void VM::close_upvalues_after(Value* addr) {
   for (auto it = open_upvalues.begin(); it != open_upvalues.end();) {
-    // `it` is an iterator over a vector of ObjUpvalue*, so `it` itself is
-    // ObjUpvalue**
+    // `it` iterates over a vector of ObjUpvalue*, so we have to dereference
+    // it to get the ObjUpvalue* itself.
     auto upvalue_ptr = *it;
     if (upvalue_ptr->location >= addr) {
+#ifdef LOX_DEBUG
       std::cerr << "closing upvalue at location " << upvalue_ptr->location
                 << " with value " << *(upvalue_ptr->location) << "\n";
+#endif
       upvalue_ptr->closed = *(upvalue_ptr->location);
       upvalue_ptr->location = &(upvalue_ptr->closed);
       it = open_upvalues.erase(it);
@@ -166,21 +170,22 @@ void VM::close_upvalues_after(Value* addr) {
 
 lox::Value
 VM::stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op) {
-  if (stack_size == 0) {
+  if (stack.empty()) {
     error("stack_modify_top: stack underflow");
   }
-  stack[stack_size - 1] = op(stack[stack_size - 1]);
-  return stack[stack_size - 1];
+  Value& value = stack.back();
+  value = op(value);
+  return value;
 }
 
 std::ostream& VM::stack_dump(std::ostream& out) const {
-  if (stack_size == 0) {
+  if (stack.empty()) {
     out << "          <empty stack>\n";
     return out;
   }
   out << "          ";
-  for (size_t i = 0; i < stack_size; i++) {
-    out << "[" << stack[i] << "]";
+  for (const auto& v : stack) {
+    out << "[" << v << "]";
   }
   out << "\n";
   return out;
@@ -205,7 +210,7 @@ void VM::call(ObjClosure* callee, size_t arg_count) {
                              std::to_string(callee->function->arity) +
                              " arguments but got " + std::to_string(arg_count));
   }
-  size_t stack_start = stack_size - arg_count - 1;
+  size_t stack_start = stack.size() - arg_count - 1;
   CallFrame new_frame(callee, 0, stack_start);
   call_frames.push_back(new_frame);
 }
@@ -319,6 +324,7 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::CLOSE_UPVALUE: {
+        // This effectively only closes the upvalue that's at the top of the stack.
         close_upvalues_after(stack_top_address());
         stack_pop();
         break;
@@ -428,8 +434,8 @@ InterpretResult VM::run() {
       }
       case OpCode::SET_LOCAL: {
         uint8_t local_index = read_byte();
-        if (static_cast<size_t>(local_index) > stack_size) {
-          std::cerr << "stack_size=" << stack_size
+        if (static_cast<size_t>(local_index) > stack.size()) {
+          std::cerr << "stack_size=" << stack.size()
                     << ", local_index=" << +local_index << "\n";
           error("SET_LOCAL: invalid local variable index");
         }
@@ -438,8 +444,8 @@ InterpretResult VM::run() {
       }
       case OpCode::GET_LOCAL: {
         uint8_t local_index = read_byte();
-        if (static_cast<size_t>(local_index) > stack_size) {
-          std::cerr << "stack_size=" << stack_size
+        if (static_cast<size_t>(local_index) > stack.size()) {
+          std::cerr << "stack_size=" << stack.size()
                     << ", local_index=" << +local_index << "\n";
           error("GET_LOCAL: invalid local variable index");
         }
@@ -473,7 +479,7 @@ InterpretResult VM::run() {
         uint8_t nargs = read_byte();
         // The function pointer should have been pushed to the stack before
         // the arguments.
-        auto maybe_objptr = stack[stack_size - 1 - nargs];
+        auto maybe_objptr = stack[stack.size() - 1 - nargs];
         if (!std::holds_alternative<Obj*>(maybe_objptr)) {
           throw std::runtime_error("objptr was not a pointer to Obj");
         }
@@ -485,9 +491,9 @@ InterpretResult VM::run() {
           auto native_fnptr = dynamic_cast<ObjNativeFunction*>(maybe_closptr);
           if (native_fnptr != nullptr) {
             Value retval =
-                native_fnptr->call(nargs, &stack[stack_size - nargs]);
+                native_fnptr->call(nargs, &stack[stack.size() - nargs]);
             // Pop the function and its arguments off the stack.
-            stack_size -= (nargs + 1);
+            stack.resize(stack.size() - nargs - 1);
             // Push the return value onto the stack.
             stack_push(retval);
           } else {
@@ -510,7 +516,7 @@ InterpretResult VM::run() {
         } else {
           // Reset the VM's state to where it was before it entered the current
           // call.
-          stack_size = current_frame().stack_start;
+          stack.resize(current_frame().stack_start);
           stack_push(retval);
           call_frames.pop_back();
         }
@@ -538,12 +544,12 @@ InterpretResult VM::run() {
   }
 }
 
-void VM::gc() {
+void VM::maybe_gc() {
   if (_gc.should_gc()) {
 
     // Mark roots as grey.
-    for (size_t i = 0; i < stack_size; ++i) {
-      _gc.mark_as_grey(stack[i]);
+    for (const auto& v : stack) {
+      _gc.mark_as_grey(v);
     }
     for (const auto& [_, global_value] : globals) {
       _gc.mark_as_grey(global_value);

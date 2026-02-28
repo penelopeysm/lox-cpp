@@ -61,8 +61,6 @@ private:
   // NOTE: We use std::vector here instead of std::stack because the latter does
   // not provide random access (you can only access the top element).
   std::vector<lox::Value> stack;
-  // This is zero-indexed.
-  size_t stack_size;
   GC _gc;
   // maps from the name of a global variable to its value
   std::unordered_map<std::string, lox::Value> globals;
@@ -77,14 +75,14 @@ private:
   void close_upvalues_after(Value* addr);
 
   // Run garbage collection
-  void gc();
+  void maybe_gc();
 
   lox::Value get_local_variable(size_t local_index) {
     // Because local_index is an index into the current function's locals,
     // which may not start at zero (but instead start at
     // current_frame().stack_start), we need to offset it by stack_start.
     size_t stack_index = current_frame().stack_start + local_index;
-    if (stack_index >= stack_size) {
+    if (stack_index >= stack.size()) {
       error("get_local_variable: invalid local variable index");
     }
     return stack[stack_index];
@@ -92,7 +90,7 @@ private:
 
   lox::Value* get_local_variable_address(size_t local_index) {
     size_t stack_index = current_frame().stack_start + local_index;
-    if (stack_index >= stack_size) {
+    if (stack_index >= stack.size()) {
       error("get_local_variable: invalid local variable index");
     }
     return &stack[current_frame().stack_start + local_index];
@@ -100,7 +98,7 @@ private:
 
   void set_local_variable(size_t local_index, const lox::Value& value) {
     size_t stack_index = current_frame().stack_start + local_index;
-    if (stack_index >= stack_size) {
+    if (stack_index >= stack.size()) {
       error("set_local_variable: invalid local variable index");
     }
     stack[stack_index] = value;
