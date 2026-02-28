@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler.hpp"
+#include "stringmap.hpp"
 #include "gc.hpp"
 #include "value.hpp"
 #include <cstddef>
@@ -63,7 +64,7 @@ private:
   std::vector<lox::Value> stack;
   GC _gc;
   // maps from the name of a global variable to its value
-  std::unordered_map<std::string, lox::Value> globals;
+  StringMap<Value> globals;
   std::unique_ptr<Parser> parser;
   // sorted upvalues that haven't been closed yet. They sort in decreasing order
   // of the stack slot that they point to
@@ -109,8 +110,9 @@ private:
   // Read a constant using the current byte, and advance the instruction
   // pointer.
   lox::Value read_constant();
-  // Read the name of a global variable from the chunk's constant table.
-  std::string read_constant_string();
+  // Read the name of a global variable from the chunk's constant table, and
+  // advance the instruction pointer.
+  lox::ObjString* read_constant_string();
 
   void error(const std::string& message);
 

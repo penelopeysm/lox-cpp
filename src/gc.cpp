@@ -88,8 +88,11 @@ void GC::gc() {
       break;
     case ObjType::NATIVE_FUNCTION:
       break;
-    case ObjType::CLASS:
+    case ObjType::CLASS: {
+      auto p = static_cast<ObjClass*>(objptr);
+      mark_as_grey(p->name);
       break;
+    }
     case ObjType::FUNCTION: {
       ObjFunction* p = static_cast<ObjFunction*>(objptr);
       for (const auto& constant : p->chunk.get_constants()) {

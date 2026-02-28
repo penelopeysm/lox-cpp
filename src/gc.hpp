@@ -1,29 +1,11 @@
 #pragma once
 #include "value.hpp"
+#include "stringmap.hpp"
 #include <functional>
-#include <string>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 
 namespace lox {
-
-// https://www.cppstories.com/2021/heterogeneous-access-cpp20/
-struct string_hash {
-  using is_transparent = void;
-  [[nodiscard]] size_t operator()(std::string_view txt) const {
-    return std::hash<std::string_view>{}(txt);
-  }
-  [[nodiscard]] size_t operator()(const std::string& txt) const {
-    return std::hash<std::string>{}(txt);
-  }
-};
-
-class StringMap {
-public:
-  StringMap() = default;
-  std::unordered_map<std::string, ObjString*, string_hash, std::equal_to<>> map;
-};
 
 class GC {
 public:
@@ -83,7 +65,7 @@ public:
 private:
   // First object in the linked list of all objects tracked by the GC.
   Obj* head = nullptr;
-  StringMap interned_strings;
+  StringMap<ObjString*> interned_strings;
   std::vector<Obj*> grey_stack;
   std::function<void()> alloc_callback = nullptr;
   size_t bytes_allocated = 0;

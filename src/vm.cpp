@@ -142,11 +142,11 @@ lox::Value VM::stack_peek() {
   return stack.back();
 }
 
-std::string VM::read_constant_string() {
+ObjString* VM::read_constant_string() {
   lox::Value var_name_value = read_constant();
   // This is technically unsafe since the constant could be any Value, but
   // by construction of the parser it should always be a string.
-  return static_cast<ObjString*>(std::get<Obj*>(var_name_value))->value;
+  return static_cast<ObjString*>(std::get<Obj*>(var_name_value));
 }
 
 void VM::close_upvalues_after(Value* addr) {
@@ -226,7 +226,7 @@ VM& VM::define_native(
     const std::string& name, size_t arity,
     std::function<lox::Value(size_t, const lox::Value*)> function) {
   auto native_fn = _gc.alloc<ObjNativeFunction>(name, arity, function);
-  globals[name] = native_fn;
+  globals.map[name] = native_fn;
   return *this;
 }
 
@@ -399,7 +399,7 @@ InterpretResult VM::run() {
         // have a DEFINE_GLOBAL instruction followed by the constant index.
         // When we get here we have already seen the DEFINE_GLOBAL
         // instruction, so we need to read the variable name.
-        std::string var_name = read_constant_string();
+        ObjString* var_name = read_constant_string();
         // After this, the parser will have emitted bytecode that pushes the
         // value of the variable onto the stack. So we need to pop that value.
         // (Or, following the book, just peek it now and pop it later, after
@@ -410,38 +410,42 @@ InterpretResult VM::run() {
         // yet. It returns a reference to the value, which can then be
         // assigned to. So this doesn't desugar to something like setindex! in
         // Julia, it is just a composition of operator[] and assignment.
-        globals[var_name] = var_value;
+        //
+        // We have to access the actual underlying string value here because we
+        // are creating a new key in the map (which takes std::string as
+        // keys)
+        globals.map[var_name->value] = var_value;
         stack_pop(); // now pop the value
         break;
       }
       case OpCode::CLASS: {
-        std::string class_name = read_constant_string();
+        ObjString* class_name = read_constant_string();
         auto new_class = _gc.alloc<ObjClass>(class_name);
         stack_push(new_class);
         break;
       }
       case OpCode::GET_GLOBAL: {
-        std::string var_name = read_constant_string();
+        ObjString* var_name = read_constant_string();
         // Now that we have the name of the variable, we can look it up in our
         // map
-        auto it = globals.find(var_name);
-        if (it == globals.end()) {
-          error("undefined variable '" + var_name + "'");
+        auto it = globals.map.find(var_name);
+        if (it == globals.map.end()) {
+          error("undefined variable '" + var_name->value + "'");
         }
         stack_push(it->second);
         break;
       }
       case OpCode::SET_GLOBAL: {
-        std::string var_name = read_constant_string();
-        auto it = globals.find(var_name);
-        if (it == globals.end()) {
-          error("undefined variable '" + var_name + "'");
+        ObjString* var_name = read_constant_string();
+        auto it = globals.map.find(var_name);
+        if (it == globals.map.end()) {
+          error("undefined variable '" + var_name->value + "'");
         } else {
-          // Update the value in the chunk's constant table.
+          // Update the value in the globals table.
           // Peek not pop because assignment expressions return the assigned
           // value and it might be used again later!
           lox::Value var_value = stack_peek();
-          globals[var_name] = var_value;
+          it->second = var_value;
         }
         break;
       }
@@ -568,7 +572,7 @@ void VM::maybe_gc() {
     for (const auto& v : stack) {
       _gc.mark_as_grey(v);
     }
-    for (const auto& [_, global_value] : globals) {
+    for (const auto& [_, global_value] : globals.map) {
       _gc.mark_as_grey(global_value);
     }
     for (const auto& frame : call_frames) {

@@ -135,25 +135,24 @@ private:
 
 class ObjClass : public Obj {
 public:
-  ObjClass(std::string_view name)
-      : Obj(ObjType::CLASS), name(std::string(name)) {}
+  ObjString* name;
 
-  std::string to_repr() const override { return "<class " + name + ">"; }
+  ObjClass(ObjString* name) : Obj(ObjType::CLASS), name(name) {}
 
-private:
-  std::string name;
+  std::string to_repr() const override { return "<class " + name->value + ">"; }
 };
 
 class ObjInstance : public Obj {
 public:
+  ObjClass* klass;
+  // TODO: optimise this.
+  std::unordered_map<std::string, Value> fields;
+
   ObjInstance(ObjClass* klass) : Obj(ObjType::INSTANCE), klass(klass) {}
 
   std::string to_repr() const override {
     return "<instance of " + klass->to_repr() + ">";
   }
-
-private:
-  ObjClass* klass;
 };
 
 bool is_truthy(const Value& value);
