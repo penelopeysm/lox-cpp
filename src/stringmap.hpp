@@ -26,18 +26,14 @@ struct string_hash {
 
 struct string_eq {
   using is_transparent = void;
-  // NOTE: The reason why std::string& comes first is because the key type of
-  // the map is std::string. (I couldn't figure out where this is specified,
-  // but looking at the implementation of std::unordered_map this seems to be
-  // the case.)
-  bool operator()(const std::string& a, const std::string& b) const {
-    return a == b;
-  }
-  bool operator()(const std::string& a, std::string_view b) const {
-    return a == b;
-  }
-  bool operator()(const std::string& a, ObjString* b) const {
-    return a == b->value;
+
+  static std::string_view to_view(const std::string& s) { return s; }
+  static std::string_view to_view(std::string_view s) { return s; }
+  static std::string_view to_view(ObjString* obj) { return obj->value; }
+
+  template <typename T, typename U>
+  bool operator()(const T& t, const U& u) const {
+    return to_view(t) == to_view(u);
   }
 };
 
