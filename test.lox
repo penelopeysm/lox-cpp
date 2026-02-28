@@ -1,7 +1,9 @@
-var a = "b";
-
-for (var i = 0; i < 10; i = i + 1) {
-    a = a + "b" + "y";
+fun add(a, b) { return a + b; }
+fun bench() {
+    var result = 0;
+    for (var i = 0; i < 10000000; i = i + 1) {
+      result = add(result, 1);
+    }
+    return result;
 }
-
-print a;
+print bench();
