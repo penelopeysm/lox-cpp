@@ -110,7 +110,7 @@ private:
   // pointer.
   lox::Value read_constant();
   // Read the name of a global variable from the chunk's constant table.
-  std::string read_global_name();
+  std::string read_constant_string();
 
   void error(const std::string& message);
 

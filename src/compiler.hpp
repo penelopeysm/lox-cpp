@@ -131,6 +131,7 @@ private:
   void function();
   void declaration();
   void var_declaration();
+  void class_declaration();
   void statement();
   void print_statement();
   void if_statement();

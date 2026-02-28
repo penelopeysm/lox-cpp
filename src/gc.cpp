@@ -88,6 +88,8 @@ void GC::gc() {
       break;
     case ObjType::NATIVE_FUNCTION:
       break;
+    case ObjType::CLASS:
+      break;
     case ObjType::FUNCTION: {
       ObjFunction* p = static_cast<ObjFunction*>(objptr);
       for (const auto& constant : p->chunk.get_constants()) {
@@ -110,6 +112,11 @@ void GC::gc() {
         mark_as_grey(upvalue);
       }
       break;
+    }
+    case ObjType::INSTANCE: {
+      // TODO
+      throw std::runtime_error(
+          "GC: mark_as_grey: unimplemented for ObjType::INSTANCE");
     }
     }
 

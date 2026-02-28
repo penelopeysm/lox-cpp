@@ -5,7 +5,6 @@
 #include <functional>
 #include <iostream>
 #include <stddef.h>
-#include <stdexcept>
 #include <stdint.h>
 #include <string>
 #include <string_view>
@@ -16,7 +15,15 @@ namespace lox {
 
 enum class InterpretResult { OK, COMPILE_ERROR, RUNTIME_ERROR };
 
-enum class ObjType { STRING, FUNCTION, UPVALUE, CLOSURE, NATIVE_FUNCTION };
+enum class ObjType {
+  STRING,
+  FUNCTION,
+  UPVALUE,
+  CLOSURE,
+  NATIVE_FUNCTION,
+  CLASS,
+  INSTANCE
+};
 
 // Forward declarations
 class GC;
@@ -124,6 +131,29 @@ private:
   size_t arity;
   // The actual C++ function that implements the native function.
   std::function<Value(size_t arg_count, const Value* args)> function;
+};
+
+class ObjClass : public Obj {
+public:
+  ObjClass(std::string_view name)
+      : Obj(ObjType::CLASS), name(std::string(name)) {}
+
+  std::string to_repr() const override { return "<class " + name + ">"; }
+
+private:
+  std::string name;
+};
+
+class ObjInstance : public Obj {
+public:
+  ObjInstance(ObjClass* klass) : Obj(ObjType::INSTANCE), klass(klass) {}
+
+  std::string to_repr() const override {
+    return "<instance of " + klass->to_repr() + ">";
+  }
+
+private:
+  ObjClass* klass;
 };
 
 bool is_truthy(const Value& value);

@@ -142,7 +142,7 @@ lox::Value VM::stack_peek() {
   return stack.back();
 }
 
-std::string VM::read_global_name() {
+std::string VM::read_constant_string() {
   lox::Value var_name_value = read_constant();
   // This is technically unsafe since the constant could be any Value, but
   // by construction of the parser it should always be a string.
@@ -399,7 +399,7 @@ InterpretResult VM::run() {
         // have a DEFINE_GLOBAL instruction followed by the constant index.
         // When we get here we have already seen the DEFINE_GLOBAL
         // instruction, so we need to read the variable name.
-        std::string var_name = read_global_name();
+        std::string var_name = read_constant_string();
         // After this, the parser will have emitted bytecode that pushes the
         // value of the variable onto the stack. So we need to pop that value.
         // (Or, following the book, just peek it now and pop it later, after
@@ -414,8 +414,14 @@ InterpretResult VM::run() {
         stack_pop(); // now pop the value
         break;
       }
+      case OpCode::CLASS: {
+        std::string class_name = read_constant_string();
+        auto new_class = _gc.alloc<ObjClass>(class_name);
+        stack_push(new_class);
+        break;
+      }
       case OpCode::GET_GLOBAL: {
-        std::string var_name = read_global_name();
+        std::string var_name = read_constant_string();
         // Now that we have the name of the variable, we can look it up in our
         // map
         auto it = globals.find(var_name);
@@ -426,7 +432,7 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::SET_GLOBAL: {
-        std::string var_name = read_global_name();
+        std::string var_name = read_constant_string();
         auto it = globals.find(var_name);
         if (it == globals.end()) {
           error("undefined variable '" + var_name + "'");

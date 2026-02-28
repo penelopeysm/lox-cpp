@@ -234,6 +234,12 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
     os << "POP\n";
     return offset + 1;
   }
+  case OpCode::CLASS: {
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "CLASS " << constant << "\n";
+    return offset + 2;
+  }
   case OpCode::GET_GLOBAL: {
     uint8_t constant_index = code[offset + 1];
     Value constant = constants[constant_index];

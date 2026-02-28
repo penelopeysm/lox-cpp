@@ -386,9 +386,31 @@ void Parser::declaration() {
     var_declaration();
   } else if (consume_if(TokenType::FUN)) {
     function();
+  } else if (consume_if(TokenType::CLASS)) {
+    class_declaration();
   } else {
     statement();
   }
+}
+
+void Parser::class_declaration() {
+  // class token already consumed
+  consume_or_error(TokenType::IDENTIFIER, "expected class name");
+  std::string_view class_name = previous.lexeme;
+
+  // Store the class name in the constant table. The CLASS instruction will
+  // construct the ObjClass at runtime and put it on the stack.
+  uint8_t name_constant_index = make_constant(gc.get_string_ptr(class_name));
+  emit(lox::OpCode::CLASS);
+  emit(name_constant_index);
+
+  // This call will emit code to read from the top of the stack and create
+  // either a local or global variable with the class.
+  define_variable(class_name);
+
+  consume_or_error(TokenType::LEFT_BRACE, "expected '{' before class body");
+  // TODO class body
+  consume_or_error(TokenType::RIGHT_BRACE, "expected '}' after class body");
 }
 
 void Parser::var_declaration() {
