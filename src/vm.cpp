@@ -490,23 +490,27 @@ InterpretResult VM::run() {
         if (!std::holds_alternative<Obj*>(maybe_objptr)) {
           throw std::runtime_error("objptr was not a pointer to Obj");
         }
-        auto maybe_closptr = std::get<Obj*>(maybe_objptr);
-        auto closptr = dynamic_cast<ObjClosure*>(maybe_closptr);
-        if (closptr != nullptr) {
+        auto objptr = std::get<Obj*>(maybe_objptr);
+
+        switch (objptr->type) {
+        case ObjType::CLOSURE: {
+          auto closptr = static_cast<ObjClosure*>(objptr);
           call(closptr, nargs);
-        } else {
-          auto native_fnptr = dynamic_cast<ObjNativeFunction*>(maybe_closptr);
-          if (native_fnptr != nullptr) {
-            Value retval =
-                native_fnptr->call(nargs, &stack[stack.size() - nargs]);
-            // Pop the function and its arguments off the stack.
-            stack.resize(stack.size() - nargs - 1);
-            // Push the return value onto the stack.
-            stack_push(retval);
-          } else {
-            throw std::runtime_error(
-                "can only call closure or native function");
-          }
+          break;
+        }
+        case ObjType::NATIVE_FUNCTION: {
+          auto native_fnptr = static_cast<ObjNativeFunction*>(objptr);
+          Value retval =
+              native_fnptr->call(nargs, &stack[stack.size() - nargs]);
+          // Pop the function and its arguments off the stack.
+          stack.resize(stack.size() - nargs - 1);
+          // Push the return value onto the stack.
+          stack_push(retval);
+          break;
+        }
+        default: {
+          throw std::runtime_error("can only call closure or native function");
+        }
         }
         break;
       }

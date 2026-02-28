@@ -42,7 +42,7 @@ public:
   size_t size = 0;
 
   // NOTE: Marking a member function as `virtual` means that C++ will force
-  // it to use dynamic dispatc (i.e., even if there's an Obj* pointer, it will
+  // it to use dynamic dispatch (i.e., even if there's an Obj* pointer, it will
   // figure out at runtime which exact derived class it points to, and then
   // call the appropriate member function). If you don't do that, if the pointer
   // is statically typed as Obj*, it will always call Obj's member function,
