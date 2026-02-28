@@ -58,7 +58,6 @@ public:
   // NOTE: the (= 0) makes this a 'pure virtual' function, meaning that derived
   // classes must implement this function.
   virtual std::string to_repr() const = 0;
-  virtual Value add(const Obj* other, GC& gc) = 0;
 
   // NOTE: `protected` means this constructor can only be called by derived
   // classes
@@ -71,7 +70,6 @@ public:
   std::string value;
   ObjString(std::string_view str) : Obj(ObjType::STRING), value(str) {}
   std::string to_repr() const override { return "\"" + value + "\""; }
-  Value add(const Obj* other, GC& gc) override;
 };
 
 class ObjFunction : public Obj {
@@ -85,10 +83,6 @@ public:
   }
 
   std::string to_repr() const override { return "<fn " + name + ">"; }
-  // NOTE: If you aren't using the parameters, you can just omit their names!
-  Value add(const Obj*, GC&) override {
-    throw std::runtime_error("loxc: add: cannot add function objects");
-  }
 };
 
 class ObjUpvalue : public Obj {
@@ -99,9 +93,6 @@ public:
       : Obj(ObjType::UPVALUE), location(location), closed(std::monostate()) {}
 
   std::string to_repr() const override { return "<upvalue>"; }
-  Value add(const Obj*, GC&) override {
-    throw std::runtime_error("loxc: add: cannot add upvalue objects");
-  }
 };
 
 class ObjClosure : public Obj {
@@ -113,9 +104,6 @@ public:
 
   std::string to_repr() const override {
     return "<clos " + function->name + ">";
-  }
-  Value add(const Obj*, GC&) override {
-    throw std::runtime_error("loxc: add: cannot add function objects");
   }
 };
 
@@ -129,9 +117,6 @@ public:
 
   Value call(uint8_t arg_count, const Value* args);
   std::string to_repr() const override { return "<native fn " + name + ">"; }
-  Value add(const Obj*, GC&) override {
-    throw std::runtime_error("loxc: add: cannot add function objects");
-  }
 
 private:
   std::string name;

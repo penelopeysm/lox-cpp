@@ -23,21 +23,6 @@ std::ostream& operator<<(std::ostream& os, const Value& value) {
   return os;
 }
 
-Value ObjString::add(const Obj* other, GC& gc) {
-  if (other->type != ObjType::STRING) {
-    throw std::runtime_error(
-        "loxc: add: cannot concatenate non-string to string");
-  }
-  // no choice here, we have to concatenate the strings which means allocating
-  auto other_str = static_cast<const ObjString*>(other);
-  // SUBTLE NOT-BUG: gc.get_string_ptr has to allocate, which means that it might trigger GC,
-  // which in turn might clean up the old strings. But that's fine, because this line will
-  // extract the data from the old strings and concatenate them,
-  std::string new_str = value + other_str->value;
-  // so even if GC triggers here, we won't run into segfaults.
-  return gc.get_string_ptr(new_str);
-}
-
 Value ObjNativeFunction::call(uint8_t arg_count, const Value* args) {
   if (arg_count != arity) {
     throw std::runtime_error("expected " + std::to_string(arity) +
@@ -90,7 +75,19 @@ Value add(const Value& a, const Value& b, GC& gc) {
              std::holds_alternative<Obj*>(b)) {
     auto aptr = std::get<Obj*>(a);
     auto bptr = std::get<Obj*>(b);
-    return aptr->add(bptr, gc);
+    if (aptr->type != ObjType::STRING || bptr->type != ObjType::STRING) {
+      throw std::runtime_error(
+          "operands to `+` must be two numbers or two strings");
+    }
+    auto str1 = static_cast<ObjString*>(aptr);
+    auto str2 = static_cast<ObjString*>(bptr);
+    // SUBTLE NOT-BUG: gc.get_string_ptr has to allocate, which means that it
+    // might trigger GC, which in turn might clean up the old strings. But
+    // that's fine, because this line will extract the data from the old strings
+    // and concatenate them,
+    std::string new_str = str1->value + str2->value;
+    // so even if GC triggers here, we won't run into segfaults.
+    return gc.get_string_ptr(new_str);
   } else {
     throw std::runtime_error(
         "operands to `+` must be two numbers or two strings");
