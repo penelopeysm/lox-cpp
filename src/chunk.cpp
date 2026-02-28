@@ -56,7 +56,7 @@ size_t lox::Chunk::size() const { return code.size(); }
 
 size_t lox::Chunk::capacity() const { return code.capacity(); }
 
-uint8_t lox::Chunk::at(size_t index) const { return code.at(index); }
+uint8_t lox::Chunk::at(size_t index) const { return code[index]; }
 
 lox::Chunk& lox::Chunk::write(uint8_t byte, size_t line) {
   // NOTE: try/catch are (almost?) zero-cost in the non-exception path

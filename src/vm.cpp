@@ -178,6 +178,13 @@ VM::stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op) {
   return value;
 }
 
+void VM::stack_replace_top(const lox::Value& new_value) {
+  if (stack.empty()) {
+    error("stack_replace_top: stack underflow");
+  }
+  stack.back() = new_value;
+}
+
 std::ostream& VM::stack_dump(std::ostream& out) const {
   if (stack.empty()) {
     out << "          <empty stack>\n";
@@ -223,17 +230,6 @@ VM& VM::define_native(
   return *this;
 }
 
-VM& VM::handle_binary_op(const std::function<lox::Value(double, double)>& op) {
-  lox::Value b = stack_pop();
-  lox::Value a = stack_pop();
-  if (std::holds_alternative<double>(a) && std::holds_alternative<double>(b)) {
-    stack_push(op(std::get<double>(a), std::get<double>(b)));
-  } else {
-    error("operands must be numbers");
-  }
-  return *this;
-}
-
 InterpretResult VM::run() {
   try {
 
@@ -251,8 +247,9 @@ InterpretResult VM::run() {
       }
       case OpCode::CLOSURE: {
         lox::Value c = read_constant();
-        // We know that `c` has to be a ObjFunction* here, so we can use
-        // static_cast instead of dynamic_cast (even if it's a bit dangerous)
+        // We know that `c` has to be a ObjFunction* here, so we can directly
+        // use static_cast instead of checking the ObjType inside (even if it's
+        // a bit dangerous)
         auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
         stack_push(c_fn); // avoid GCing the function while the closure is being
                           // created
@@ -324,7 +321,8 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::CLOSE_UPVALUE: {
-        // This effectively only closes the upvalue that's at the top of the stack.
+        // This effectively only closes the upvalue that's at the top of the
+        // stack.
         close_upvalues_after(stack_top_address());
         stack_pop();
         break;
@@ -345,8 +343,17 @@ InterpretResult VM::run() {
       }
       case OpCode::ADD: {
         lox::Value b = stack_pop();
-        lox::Value a = stack_pop();
-        stack_push(lox::add(a, b, _gc));
+        lox::Value a = stack_peek();
+        if (std::holds_alternative<double>(a) &&
+            std::holds_alternative<double>(b)) {
+          // Attempts at perf optimisations using Instruments.app... don't think
+          // it made much of a difference though.
+          stack_replace_top(std::get<double>(a) + std::get<double>(b));
+        } else {
+          stack_pop(); // pop a
+          stack_push(lox::add(a, b, _gc));
+        }
+
         break;
       }
       case OpCode::SUBTRACT: {

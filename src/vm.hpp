@@ -114,8 +114,6 @@ private:
 
   void error(const std::string& message);
 
-  VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
-
   void call(ObjClosure* callee, size_t arg_count);
 
   // Move the stack pointer back to the base
@@ -127,6 +125,24 @@ private:
   // Apply `op` to the top value on the stack, replacing it with the result
   lox::Value
   stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op);
+
+  void stack_replace_top(const lox::Value&);
+
+  // This used to be
+  // VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
+  // but we now make it a template to avoid type erasure
+  template <typename BinaryOp> VM& handle_binary_op(BinaryOp op) {
+    lox::Value b = stack_pop();
+    lox::Value a = stack_peek();
+    if (std::holds_alternative<double>(a) &&
+        std::holds_alternative<double>(b)) {
+      lox::Value result = op(std::get<double>(a), std::get<double>(b));
+      stack_replace_top(result);
+    } else {
+      error("operands must be numbers");
+    }
+    return *this;
+  }
 };
 
 } // namespace lox
