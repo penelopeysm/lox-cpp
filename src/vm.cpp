@@ -423,6 +423,28 @@ InterpretResult VM::run() {
         stack_push(new_class);
         break;
       }
+      case OpCode::DEFINE_METHOD: {
+        // pop ObjClosure from stack
+        lox::Value val = stack_peek();
+        auto closure_ptr = as_objptr<ObjClosure>(
+            val,
+            "internal error: expected ObjClosure on stack for DEFINE_METHOD");
+        // TODO: Fix this by storing ObjString* directly in ObjFunction rather
+        // than std::string. That also allows us to use stack_pop a few lines
+        // above rather than stack_peek (right now we have to guard against the
+        // closure being GC'd when calling get_string_ptr).
+        std::string method_name = closure_ptr->function->name;
+        ObjString* method_name_str = _gc.get_string_ptr(method_name);
+        // now we can pop
+        stack_pop();
+        // The class should now be at the top of the stack
+        lox::Value class_val = stack_peek();
+        auto class_ptr = as_objptr<ObjClass>(
+            class_val,
+            "internal error: expected ObjClass on stack for DEFINE_METHOD");
+        class_ptr->methods[method_name_str] = closure_ptr;
+        break;
+      }
       case OpCode::GET_GLOBAL: {
         ObjString* var_name = read_constant_string();
         // Now that we have the name of the variable, we can look it up in our
@@ -451,22 +473,27 @@ InterpretResult VM::run() {
       case OpCode::GET_PROPERTY: {
         // the instance is at the top of the stack
         lox::Value instance_value = stack_peek();
-        if (!std::holds_alternative<Obj*>(instance_value)) {
-          throw std::runtime_error("cannot access property of non-instance");
-        }
-        auto objptr = std::get<Obj*>(instance_value);
-        if (objptr->type != ObjType::INSTANCE) {
-          throw std::runtime_error("cannot access property of non-instance");
-        }
-        auto instanceptr = static_cast<ObjInstance*>(objptr);
+        auto instanceptr = as_objptr<ObjInstance>(
+            instance_value, "cannot access property of non-instance");
         ObjString* property_name = read_constant_string();
+        // Check first if it's a field on the instance
         auto it = instanceptr->fields.find(property_name);
-        if (it == instanceptr->fields.end()) {
-          throw std::runtime_error("undefined property '" +
-                                   property_name->value + "'");
-        } else {
-          // Found! Yay!
+        if (it != instanceptr->fields.end()) {
+          // It was a field
           stack_replace_top(it->second);
+        } else {
+          // Maybe it's a method
+          auto classmethods = instanceptr->klass->methods;
+          auto method_itr = classmethods.find(property_name);
+          if (method_itr != classmethods.end()) {
+            // TODO: bind `this`
+            ObjClosure* method_closure = method_itr->second;
+            stack_replace_top(method_closure);
+          } else {
+            // OK, it really wasn't found
+            throw std::runtime_error("undefined property '" +
+                                     property_name->value + "'");
+          }
         }
         break;
       }
@@ -475,14 +502,8 @@ InterpretResult VM::run() {
         lox::Value value_to_set = stack_peek();
         // the instance is just below it
         lox::Value instance_value = stack[stack.size() - 2];
-        if (!std::holds_alternative<Obj*>(instance_value)) {
-          throw std::runtime_error("cannot access property of non-instance");
-        }
-        auto objptr = std::get<Obj*>(instance_value);
-        if (objptr->type != ObjType::INSTANCE) {
-          throw std::runtime_error("cannot access property of non-instance");
-        }
-        auto instanceptr = static_cast<ObjInstance*>(objptr);
+        auto instanceptr = as_objptr<ObjInstance>(
+            instance_value, "cannot access property of non-instance");
         ObjString* property_name = read_constant_string();
         // NOTE: operator[] does not allow for heterogeneous lookup, so we need
         // to actually access the underlying std::string

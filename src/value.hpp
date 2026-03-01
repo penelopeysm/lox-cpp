@@ -76,8 +76,11 @@ protected:
 class ObjString : public Obj {
 public:
   std::string value;
-  ObjString(std::string_view str) : Obj(ObjType::STRING), value(str) {}
+  ObjString(std::string_view str) : Obj(static_type), value(str) {}
   std::string to_repr() const override { return "\"" + value + "\""; }
+
+  static constexpr ObjType static_type = ObjType::STRING;
+  static constexpr std::string_view static_type_name = "ObjString";
 };
 
 class ObjFunction : public Obj {
@@ -87,10 +90,12 @@ public:
   std::vector<Upvalue> upvalues;
   Chunk chunk;
   ObjFunction(std::string_view name, size_t arity)
-      : Obj(ObjType::FUNCTION), name(std::string(name)), arity(arity), chunk() {
-  }
+      : Obj(static_type), name(std::string(name)), arity(arity), chunk() {}
 
   std::string to_repr() const override { return "<fn " + name + ">"; }
+
+  static constexpr ObjType static_type = ObjType::FUNCTION;
+  static constexpr std::string_view static_type_name = "ObjFunction";
 };
 
 class ObjUpvalue : public Obj {
@@ -98,21 +103,26 @@ public:
   Value* location;
   Value closed; // when the upvalue is closed, we store the value here
   ObjUpvalue(Value* location)
-      : Obj(ObjType::UPVALUE), location(location), closed(std::monostate()) {}
+      : Obj(static_type), location(location), closed(std::monostate()) {}
 
   std::string to_repr() const override { return "<upvalue>"; }
+
+  static constexpr ObjType static_type = ObjType::UPVALUE;
+  static constexpr std::string_view static_type_name = "ObjUpvalue";
 };
 
 class ObjClosure : public Obj {
 public:
   ObjFunction* function;
   std::vector<ObjUpvalue*> upvalues;
-  ObjClosure(ObjFunction* function)
-      : Obj(ObjType::CLOSURE), function(function) {}
+  ObjClosure(ObjFunction* function) : Obj(static_type), function(function) {}
 
   std::string to_repr() const override {
     return "<clos " + function->name + ">";
   }
+
+  static constexpr ObjType static_type = ObjType::CLOSURE;
+  static constexpr std::string_view static_type_name = "ObjClosure";
 };
 
 class ObjNativeFunction : public Obj {
@@ -120,11 +130,14 @@ public:
   ObjNativeFunction(
       std::string_view name, size_t arity,
       std::function<Value(size_t arg_count, const Value* args)> function)
-      : Obj(ObjType::NATIVE_FUNCTION), name(std::string(name)), arity(arity),
+      : Obj(static_type), name(std::string(name)), arity(arity),
         function(function) {}
 
   Value call(uint8_t arg_count, const Value* args);
   std::string to_repr() const override { return "<native fn " + name + ">"; }
+
+  static constexpr ObjType static_type = ObjType::NATIVE_FUNCTION;
+  static constexpr std::string_view static_type_name = "ObjNativeFunction";
 
 private:
   std::string name;
@@ -137,10 +150,14 @@ private:
 class ObjClass : public Obj {
 public:
   ObjString* name;
+  std::unordered_map<ObjString*, ObjClosure*> methods;
 
-  ObjClass(ObjString* name) : Obj(ObjType::CLASS), name(name) {}
+  ObjClass(ObjString* name) : Obj(static_type), name(name) {}
 
   std::string to_repr() const override { return "<class " + name->value + ">"; }
+
+  static constexpr ObjType static_type = ObjType::CLASS;
+  static constexpr std::string_view static_type_name = "ObjClass";
 };
 
 class ObjInstance : public Obj {
@@ -148,12 +165,26 @@ public:
   ObjClass* klass;
   std::unordered_map<ObjString*, Value> fields;
 
-  ObjInstance(ObjClass* klass) : Obj(ObjType::INSTANCE), klass(klass) {}
+  ObjInstance(ObjClass* klass) : Obj(static_type), klass(klass) {}
 
   std::string to_repr() const override {
     return "<instance of " + klass->to_repr() + ">";
   }
+
+  static constexpr ObjType static_type = ObjType::INSTANCE;
+  static constexpr std::string_view static_type_name = "ObjInstance";
 };
+
+template <typename T> T* as_objptr(Value value, const std::string& error_msg) {
+  if (!std::holds_alternative<Obj*>(value)) {
+    throw std::runtime_error(error_msg);
+  }
+  auto objptr = std::get<Obj*>(value);
+  if (objptr->type != T::static_type) {
+    throw std::runtime_error(error_msg);
+  }
+  return static_cast<T*>(objptr);
+}
 
 bool is_truthy(const Value& value);
 bool is_equal(const Value& a, const Value& b);

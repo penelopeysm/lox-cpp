@@ -190,6 +190,10 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
     os << "RETURN\n";
     return offset + 1;
   }
+  case OpCode::DEFINE_METHOD: {
+    os << "DEFINE_METHOD\n";
+    return offset + 1;
+  }
   case OpCode::NEGATE: {
     os << "NEGATE\n";
     return offset + 1;

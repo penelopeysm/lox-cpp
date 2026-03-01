@@ -41,6 +41,7 @@ enum class OpCode {
   CLASS,
   GET_PROPERTY,
   SET_PROPERTY,
+  DEFINE_METHOD,
   // more to come
 };
 

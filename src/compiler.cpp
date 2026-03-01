@@ -139,7 +139,7 @@ void Parser::advance() {
   }
 }
 
-void Parser::function() {
+void Parser::function(bool define) {
   // Parse the name and arity of the function: that will let us create the
   // ObjFunction object
   consume_or_error(TokenType::IDENTIFIER, "expected function name");
@@ -194,7 +194,15 @@ void Parser::function() {
       emit(upvalue.is_local ? 1 : 0);
       emit(static_cast<uint8_t>(upvalue.index));
     }
-    define_variable(fn_name);
+    if (define) {
+      // This makes `fn_name` available either as a local variable (if it's in
+      // an inner scope) or a global variable. However, we don't always want to
+      // do that: for example if we're parsing a class method, then the
+      // function name is not a variable itself, but is instead stored inside
+      // the method table. Hence we have a boolean parameter that lets us
+      // control whether the variable is defined.
+      define_variable(fn_name);
+    }
   }
 }
 
@@ -384,7 +392,7 @@ void Parser::declaration() {
   if (consume_if(TokenType::VAR)) {
     var_declaration();
   } else if (consume_if(TokenType::FUN)) {
-    function();
+    function(true);
   } else if (consume_if(TokenType::CLASS)) {
     class_declaration();
   } else {
@@ -407,9 +415,40 @@ void Parser::class_declaration() {
   // either a local or global variable with the class.
   define_variable(class_name);
 
+  // We're now going to force the class to be placed on top of the stack. This
+  // is so that when we parse the methods, we can have the class be immediately
+  // below the method on the stack, so that the VM knows where to add the
+  // methods to.
+  named_variable(class_name, false);
+
+  // Now we can attempt to parse the body.
   consume_or_error(TokenType::LEFT_BRACE, "expected '{' before class body");
-  // TODO class body
+  while (current.type != TokenType::RIGHT_BRACE && !is_at_end() &&
+         !has_error()) {
+    method();
+  }
+
+  if (has_error()) {
+    return;
+  }
   consume_or_error(TokenType::RIGHT_BRACE, "expected '}' after class body");
+
+  // When we're done, we can pop the class off the stack since we don't need it
+  // any more.
+  emit(lox::OpCode::POP);
+}
+
+void Parser::method() {
+  // This parses the function body and emits code to create an ObjClosure and
+  // put it at the top of the stack.
+  function(false);
+  // We then need to tell the VM to read the ObjClosure at the top of the stack
+  // and store it in the method table of the current class. The book just calls
+  // this 'METHOD' but I've chosen to give it a more descriptive name.
+  emit(lox::OpCode::DEFINE_METHOD);
+  // The book also stores the method name in the constant table, and emits the
+  // constant index here. We'll just be lazy and get the VM to read the method
+  // name from the ObjClosure itself, since it stores that information anyway.
 }
 
 void Parser::var_declaration() {
@@ -432,8 +471,9 @@ void Parser::var_declaration() {
 void Parser::define_variable(std::string_view var_name) {
   // Determine whether it's a global or local variable
   bool is_local = compiler->get_scope_depth() > 0;
-  // For a local variable, we just need to define it in the compiler.
   if (is_local) {
+    // For a local variable, we just need to define it in the compiler, so that
+    // next time we refer to it, we know where it is on the stack.
     bool has_duplicate = compiler->declare_local(var_name);
     if (has_duplicate) {
       error("variable '" + std::string(var_name) +
@@ -442,6 +482,8 @@ void Parser::define_variable(std::string_view var_name) {
       return;
     }
   } else {
+    // For a global variable, we need to emit a DEFINE_GLOBAL instruction for
+    // the VM to pick up.
     define_global_variable(var_name);
   }
 }
@@ -774,7 +816,19 @@ void Parser::binary(bool _) {
   TokenType prev_type = previous.type;
   // Get the precedence of the operator we just consumed.
   Rule rule = get_rule(prev_type);
-  // Parse the right operand.
+  // Parse the right operand. The right operand might *itself* be a complex
+  // expression -- for example, we might be parsing the "2 + 3" bit of (1 * 2 +
+  // 3). However, we need to make sure that when parsing the right operand, we
+  // only parse operators that have higher precedence than the current operator.
+  //
+  // In this example, rule.precedence is the precedence of '*', and the
+  // precedence of '+' is lower than that. That means that when we call
+  // parse_precedence with next_precedence(rule.precedence), we WON'T parse the
+  // '+' operator; we'll only parse the "2".
+  //
+  // After that, when we return to the previous call to parse_precedence, we'll
+  // be able to parse the '+' operator. That allows us to correctly parse the
+  // expression as (1 * 2) + 3 rather than 1 * (2 + 3).
   parse_precedence(next_precedence(rule.precedence));
   // Emit the operator instruction.
   switch (prev_type) {

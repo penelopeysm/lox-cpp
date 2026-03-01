@@ -1,7 +1,5 @@
-class Num {}
+class Num {
+   a() { return 1; }
+}
 
-var n = Num();
-n.a = 1;
-var b = 1;
-
-n.a + b = 2;
+print Num().a();

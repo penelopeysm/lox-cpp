@@ -128,7 +128,7 @@ private:
   void parse_precedence(Precedence precedence);
   void block();
   void end_scope();
-  void function();
+  void function(bool define);
   void declaration();
   void var_declaration();
   void class_declaration();
@@ -140,6 +140,7 @@ private:
   void return_statement();
   void expression_statement();
   void expression();
+  void method();
   void call(bool can_assign);
   void number(bool can_assign);
   void grouping(bool can_assign);

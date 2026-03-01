@@ -91,6 +91,10 @@ void GC::gc() {
     case ObjType::CLASS: {
       auto p = static_cast<ObjClass*>(objptr);
       mark_as_grey(p->name);
+      for (const auto& [methodname, method] : p->methods) {
+        mark_as_grey(methodname);
+        mark_as_grey(method);
+      }
       break;
     }
     case ObjType::FUNCTION: {
