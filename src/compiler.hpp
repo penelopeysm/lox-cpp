@@ -32,20 +32,18 @@ struct Local {
 
 class Compiler {
 public:
-  Compiler(ObjFunction* fnptr)
-      : scope_depth(0), current_function(fnptr), is_top_level(true),
-        parent(nullptr) {
-    // Reserve slot 0 of the stack for VM internal use. Note that this, on its
-    // own, will mess with the VM's state since this does not actually push to
-    // the stack at runtime. We have to 'balance' this out in the VM by pushing
-    // the pointer to the current function onto the stack before we start
-    // executing the chunk.
-    declare_local("");
-  }
-  Compiler(ObjFunction* fnptr, std::unique_ptr<Compiler> parent)
+  Compiler(ObjFunction* fnptr, std::unique_ptr<Compiler> parent,
+           bool is_class_method)
       : scope_depth(0), current_function(fnptr), is_top_level(false),
         parent(std::move(parent)) {
-    declare_local("");
+    if (is_class_method) {
+      // For a class method, we reserve slot 0 for the 'this' variable.
+      declare_local("this");
+    } else {
+      // For a non-class method, we reserve slot 0 to mimic the above, but
+      // we give it a name that can't ever be referred to.
+      declare_local("");
+    }
   }
 
   void mark_function_as_grey(GC& _gc);
@@ -152,6 +150,7 @@ private:
   void string(bool can_assign);
   void variable(bool can_assign);
   void literal(bool can_assign);
+  void this_(bool can_assign);
   void define_variable(std::string_view var_name);
   void define_global_variable(std::string_view name);
   void named_variable(std::string_view lexeme, bool can_assign);
@@ -251,7 +250,7 @@ private:
     case TokenType::SUPER:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::THIS:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::this_, NULL, Precedence::NONE};
     case TokenType::TRUE:
       return Rule{&Parser::literal, NULL, Precedence::NONE};
     case TokenType::VAR:

@@ -127,6 +127,13 @@ void GC::gc() {
         mark_as_grey(fieldname);
         mark_as_grey(value);
       }
+      break;
+    }
+    case ObjType::BOUND_METHOD: {
+      auto p = static_cast<ObjBoundMethod*>(objptr);
+      mark_as_grey(p->receiver);
+      mark_as_grey(p->method);
+      break;
     }
     }
 

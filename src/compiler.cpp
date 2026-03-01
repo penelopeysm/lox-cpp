@@ -129,7 +129,7 @@ using lox::scanner::TokenType;
 Parser::Parser(std::unique_ptr<Scanner> scanner, ObjFunction* fnptr, GC& gc)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), gc(gc),
-      compiler(std::make_unique<Compiler>(fnptr)) {}
+      compiler(std::make_unique<Compiler>(fnptr, nullptr, false)) {}
 
 void Parser::advance() {
   previous = current;
@@ -139,7 +139,7 @@ void Parser::advance() {
   }
 }
 
-void Parser::function(bool define) {
+void Parser::function(bool is_class_method) {
   // Parse the name and arity of the function: that will let us create the
   // ObjFunction object
   consume_or_error(TokenType::IDENTIFIER, "expected function name");
@@ -150,8 +150,8 @@ void Parser::function(bool define) {
   size_t arity = 0;
   // TODO: This copies the string. Do we need to?
   auto new_fnptr = gc.alloc<ObjFunction>(fn_name, arity);
-  auto new_compiler =
-      std::make_unique<Compiler>(new_fnptr, std::move(compiler));
+  auto new_compiler = std::make_unique<Compiler>(new_fnptr, std::move(compiler),
+                                                 is_class_method);
   compiler = std::move(new_compiler);
   compiler->begin_scope();
   // Parse parameters (if there are any).
@@ -194,7 +194,7 @@ void Parser::function(bool define) {
       emit(upvalue.is_local ? 1 : 0);
       emit(static_cast<uint8_t>(upvalue.index));
     }
-    if (define) {
+    if (!is_class_method) {
       // This makes `fn_name` available either as a local variable (if it's in
       // an inner scope) or a global variable. However, we don't always want to
       // do that: for example if we're parsing a class method, then the
@@ -392,7 +392,7 @@ void Parser::declaration() {
   if (consume_if(TokenType::VAR)) {
     var_declaration();
   } else if (consume_if(TokenType::FUN)) {
-    function(true);
+    function(false);
   } else if (consume_if(TokenType::CLASS)) {
     class_declaration();
   } else {
@@ -441,7 +441,7 @@ void Parser::class_declaration() {
 void Parser::method() {
   // This parses the function body and emits code to create an ObjClosure and
   // put it at the top of the stack.
-  function(false);
+  function(true);
   // We then need to tell the VM to read the ObjClosure at the top of the stack
   // and store it in the method table of the current class. The book just calls
   // this 'METHOD' but I've chosen to give it a more descriptive name.
@@ -721,6 +721,13 @@ void Parser::expression() { parse_precedence(Precedence::ASSIGNMENT); }
 void Parser::number(bool _) {
   double value = std::stod(std::string(previous.lexeme));
   emit_constant(value);
+}
+
+void Parser::this_(bool _) {
+  // 1. We can't assign to this, hence the false.
+  // 2. We just treat 'this' like a local variable that happens to be at index
+  // 0.
+  variable(false);
 }
 
 void Parser::literal(bool _) {

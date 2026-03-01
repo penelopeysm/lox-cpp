@@ -23,7 +23,8 @@ enum class ObjType {
   CLOSURE,
   NATIVE_FUNCTION,
   CLASS,
-  INSTANCE
+  INSTANCE,
+  BOUND_METHOD
 };
 
 // Forward declarations
@@ -173,6 +174,23 @@ public:
 
   static constexpr ObjType static_type = ObjType::INSTANCE;
   static constexpr std::string_view static_type_name = "ObjInstance";
+};
+
+class ObjBoundMethod : public Obj {
+public:
+  ObjInstance* receiver;
+  ObjClosure* method;
+
+  ObjBoundMethod(ObjInstance* receiver, ObjClosure* method)
+      : Obj(static_type), receiver(receiver), method(method) {}
+
+  std::string to_repr() const override {
+    return "<bound method " + method->to_repr() + " of " + receiver->to_repr() +
+           ">";
+  }
+
+  static constexpr ObjType static_type = ObjType::BOUND_METHOD;
+  static constexpr std::string_view static_type_name = "ObjBoundMethod";
 };
 
 template <typename T> T* as_objptr(Value value, const std::string& error_msg) {

@@ -486,9 +486,10 @@ InterpretResult VM::run() {
           auto classmethods = instanceptr->klass->methods;
           auto method_itr = classmethods.find(property_name);
           if (method_itr != classmethods.end()) {
-            // TODO: bind `this`
             ObjClosure* method_closure = method_itr->second;
-            stack_replace_top(method_closure);
+            ObjBoundMethod* bound_method =
+                _gc.alloc<ObjBoundMethod>(instanceptr, method_closure);
+            stack_replace_top(bound_method);
           } else {
             // OK, it really wasn't found
             throw std::runtime_error("undefined property '" +
@@ -592,6 +593,13 @@ InterpretResult VM::run() {
           }
           ObjInstance* inst = _gc.alloc<ObjInstance>(classptr);
           stack_replace_top(inst);
+          break;
+        }
+        case ObjType::BOUND_METHOD: {
+          auto bound_method_ptr = static_cast<ObjBoundMethod*>(objptr);
+          // Stick `this` just before the arguments.
+          stack[stack.size() - 1 - nargs] = bound_method_ptr->receiver;
+          call(bound_method_ptr->method, nargs);
           break;
         }
         default: {

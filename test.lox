@@ -1,5 +1,7 @@
 class Num {
-   a() { return 1; }
+   a(x) { return 1 + x + this.b; }
 }
 
-print Num().a();
+var n = Num();
+n.b = 2;
+print n.a(3);
