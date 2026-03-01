@@ -3,8 +3,8 @@ fun bench() {
     var a = 0;
     for (var i = 1; i <= 5000000; i = i + 1) {
         var n = Num();
-        n.x = 1;
-        a = a + n.x;
+        n.veryveryverylongnameasdfasdfasdfasdfx = 1;
+        a = a + n.veryveryverylongnameasdfasdfasdfasdfx;
     }
     return a;
 }
