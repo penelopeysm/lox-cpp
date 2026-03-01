@@ -8,6 +8,10 @@
 
 namespace lox {
 
+struct CurrentClass {
+  std::unique_ptr<CurrentClass> enclosing;
+};
+
 enum class Precedence {
   NONE,
   ASSIGNMENT, // =
@@ -23,6 +27,12 @@ enum class Precedence {
 };
 Precedence next_precedence(Precedence in);
 
+enum class FunctionType {
+  TOPLEVEL,
+  FUNCTION,
+  CLASSMETHOD,
+};
+
 struct Local {
   size_t depth;
   std::string_view name;
@@ -33,10 +43,10 @@ struct Local {
 class Compiler {
 public:
   Compiler(ObjFunction* fnptr, std::unique_ptr<Compiler> parent,
-           bool is_class_method)
-      : scope_depth(0), current_function(fnptr), is_top_level(false),
-        parent(std::move(parent)) {
-    if (is_class_method) {
+           FunctionType fn_type)
+      : scope_depth(0), current_function(fnptr), fn_type(fn_type),
+        parent(std::move(parent)), current_class(nullptr) {
+    if (fn_type == FunctionType::CLASSMETHOD) {
       // For a class method, we reserve slot 0 for the 'this' variable.
       declare_local("this");
     } else {
@@ -63,7 +73,7 @@ public:
   // upvalues. This upvalue may be newly created, or it may already exist (e.g.
   // if the same captured variable is referenced multiple times).
   [[nodiscard]] size_t declare_upvalue(Upvalue upvalue);
-  bool is_at_top_level() const { return is_top_level; }
+  FunctionType get_function_type() const { return fn_type; }
 
   size_t get_chunk_size() const { return current_function->chunk.size(); }
   ObjFunction* get_current_function() { return current_function; }
@@ -85,12 +95,28 @@ public:
     current_function->arity = new_arity;
   }
 
+  bool is_in_class() const { return current_class != nullptr; }
+  void push_current_class() {
+    auto new_current_class = std::make_unique<CurrentClass>();
+    new_current_class->enclosing = std::move(current_class);
+    current_class = std::move(new_current_class);
+  }
+  void pop_current_class() {
+    if (current_class == nullptr) {
+      throw std::runtime_error(
+          "Compiler::pop_current_class: no current class to pop");
+    } else {
+      current_class = std::move(current_class->enclosing);
+    }
+  }
+
 private:
   std::vector<Local> locals;
   size_t scope_depth;
   ObjFunction* current_function;
-  bool is_top_level;
+  FunctionType fn_type;
   std::unique_ptr<Compiler> parent;
+  std::unique_ptr<CurrentClass> current_class;
 };
 
 class Parser {

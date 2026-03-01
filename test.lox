@@ -1,7 +1,1 @@
-class Num {
-   a(x) { return 1 + x + this.b; }
-}
-
-var n = Num();
-n.b = 2;
-print n.a(3);
+print this;

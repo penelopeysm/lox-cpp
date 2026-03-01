@@ -129,7 +129,8 @@ using lox::scanner::TokenType;
 Parser::Parser(std::unique_ptr<Scanner> scanner, ObjFunction* fnptr, GC& gc)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), gc(gc),
-      compiler(std::make_unique<Compiler>(fnptr, nullptr, false)) {}
+      compiler(
+          std::make_unique<Compiler>(fnptr, nullptr, FunctionType::TOPLEVEL)) {}
 
 void Parser::advance() {
   previous = current;
@@ -150,8 +151,9 @@ void Parser::function(bool is_class_method) {
   size_t arity = 0;
   // TODO: This copies the string. Do we need to?
   auto new_fnptr = gc.alloc<ObjFunction>(fn_name, arity);
-  auto new_compiler = std::make_unique<Compiler>(new_fnptr, std::move(compiler),
-                                                 is_class_method);
+  auto new_compiler = std::make_unique<Compiler>(
+      new_fnptr, std::move(compiler),
+      (is_class_method ? FunctionType::CLASSMETHOD : FunctionType::FUNCTION));
   compiler = std::move(new_compiler);
   compiler->begin_scope();
   // Parse parameters (if there are any).
@@ -411,6 +413,8 @@ void Parser::class_declaration() {
   emit(lox::OpCode::CLASS);
   emit(name_constant_index);
 
+  compiler->push_current_class();
+
   // This call will emit code to read from the top of the stack and create
   // either a local or global variable with the class.
   define_variable(class_name);
@@ -427,15 +431,13 @@ void Parser::class_declaration() {
          !has_error()) {
     method();
   }
-
-  if (has_error()) {
-    return;
-  }
   consume_or_error(TokenType::RIGHT_BRACE, "expected '}' after class body");
 
   // When we're done, we can pop the class off the stack since we don't need it
   // any more.
   emit(lox::OpCode::POP);
+
+  compiler->pop_current_class();
 }
 
 void Parser::method() {
@@ -595,7 +597,7 @@ void Parser::statement() {
 }
 
 void Parser::return_statement() {
-  if (compiler->is_at_top_level()) {
+  if (compiler->get_function_type() == FunctionType::TOPLEVEL) {
     error("cannot return from top-level code", previous.line);
   }
   // Return value
@@ -726,7 +728,11 @@ void Parser::number(bool _) {
 void Parser::this_(bool _) {
   // 1. We can't assign to this, hence the false.
   // 2. We just treat 'this' like a local variable that happens to be at index
-  // 0.
+  // zero.
+  if (!compiler->is_in_class()) {
+    error("cannot use 'this' outside of a class", previous.line);
+    return;
+  }
   variable(false);
 }
 
