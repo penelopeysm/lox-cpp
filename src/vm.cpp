@@ -449,6 +449,51 @@ InterpretResult VM::run() {
         }
         break;
       }
+      case OpCode::GET_PROPERTY: {
+        // the instance is at the top of the stack
+        lox::Value instance_value = stack_peek();
+        if (!std::holds_alternative<Obj*>(instance_value)) {
+          throw std::runtime_error("cannot access property of non-instance");
+        }
+        auto objptr = std::get<Obj*>(instance_value);
+        if (objptr->type != ObjType::INSTANCE) {
+          throw std::runtime_error("cannot access property of non-instance");
+        }
+        auto instanceptr = static_cast<ObjInstance*>(objptr);
+        ObjString* property_name = read_constant_string();
+        auto it = instanceptr->fields.map.find(property_name);
+        if (it == instanceptr->fields.map.end()) {
+          throw std::runtime_error("undefined property '" +
+                                   property_name->value + "'");
+        } else {
+          // Found! Yay!
+          stack_replace_top(it->second);
+        }
+        break;
+      }
+      case OpCode::SET_PROPERTY: {
+        // the value to set is at the top of the stack
+        lox::Value value_to_set = stack_peek();
+        // the instance is just below it
+        lox::Value instance_value = stack[stack.size() - 2];
+        if (!std::holds_alternative<Obj*>(instance_value)) {
+          throw std::runtime_error("cannot access property of non-instance");
+        }
+        auto objptr = std::get<Obj*>(instance_value);
+        if (objptr->type != ObjType::INSTANCE) {
+          throw std::runtime_error("cannot access property of non-instance");
+        }
+        auto instanceptr = static_cast<ObjInstance*>(objptr);
+        ObjString* property_name = read_constant_string();
+        // NOTE: operator[] does not allow for heterogeneous lookup, so we need
+        // to actually access the underlying std::string
+        instanceptr->fields.map[property_name->value] = value_to_set;
+        // Pop the instance and value, but leave the value on the stack since
+        // (a.x = b) evaluates to b
+        stack_pop();
+        stack_replace_top(value_to_set);
+        break;
+      }
       case OpCode::SET_LOCAL: {
         uint8_t local_index = read_byte();
         if (static_cast<size_t>(local_index) > stack.size()) {
@@ -516,6 +561,17 @@ InterpretResult VM::run() {
           stack.resize(stack.size() - nargs - 1);
           // Push the return value onto the stack.
           stack_push(retval);
+          break;
+        }
+        case ObjType::CLASS: {
+          auto classptr = static_cast<ObjClass*>(objptr);
+          // TODO: we are ignoring arguments right now.
+          if (nargs > 0) {
+            throw std::runtime_error(
+                "class constructors don't take arguments (yet)");
+          }
+          ObjInstance* inst = _gc.alloc<ObjInstance>(classptr);
+          stack_replace_top(inst);
           break;
         }
         default: {

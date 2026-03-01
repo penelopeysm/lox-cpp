@@ -145,6 +145,7 @@ private:
   void grouping(bool can_assign);
   void unary(bool can_assign);
   void binary(bool can_assign);
+  void dot(bool can_assign);
   void and_operator(bool can_assign);
   void or_operator(bool can_assign);
   void string(bool can_assign);
@@ -191,7 +192,7 @@ private:
     case TokenType::COMMA:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::DOT:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{NULL, &Parser::dot, Precedence::CALL};
     case TokenType::MINUS:
       return Rule{&Parser::unary, &Parser::binary, Precedence::TERM};
     case TokenType::PLUS:

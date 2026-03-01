@@ -39,6 +39,8 @@ enum class OpCode {
   SET_UPVALUE,
   CLOSE_UPVALUE,
   CLASS,
+  GET_PROPERTY,
+  SET_PROPERTY,
   // more to come
 };
 

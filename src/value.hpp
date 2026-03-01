@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chunk.hpp"
+#include "stringmap.hpp"
 #include "value_def.hpp"
 #include <functional>
 #include <iostream>
@@ -145,8 +146,9 @@ public:
 class ObjInstance : public Obj {
 public:
   ObjClass* klass;
-  // TODO: optimise this.
-  std::unordered_map<std::string, Value> fields;
+  // TODO: we could use std::unordered_map<ObjString*, Value> here to avoid
+  // creating the same string multiple times across different instances?
+  StringMap<Value> fields;
 
   ObjInstance(ObjClass* klass) : Obj(ObjType::INSTANCE), klass(klass) {}
 

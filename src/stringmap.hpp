@@ -1,9 +1,10 @@
 #pragma once
-#include "value.hpp"
 #include <string>
 #include <unordered_map>
 
 namespace lox {
+
+class ObjString;
 
 // https://www.cppstories.com/2021/heterogeneous-access-cpp20/
 struct string_hash {
@@ -19,9 +20,7 @@ struct string_hash {
   size_t operator()(const std::string& txt) const {
     return std::hash<std::string>{}(txt);
   }
-  size_t operator()(ObjString* obj) const {
-    return std::hash<std::string>{}(obj->value);
-  }
+  size_t operator()(ObjString* obj) const;
 };
 
 struct string_eq {
@@ -29,7 +28,7 @@ struct string_eq {
 
   static std::string_view to_view(const std::string& s) { return s; }
   static std::string_view to_view(std::string_view s) { return s; }
-  static std::string_view to_view(ObjString* obj) { return obj->value; }
+  static std::string_view to_view(ObjString* obj);
 
   template <typename T, typename U>
   bool operator()(const T& t, const U& u) const {

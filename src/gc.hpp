@@ -1,6 +1,6 @@
 #pragma once
-#include "value.hpp"
 #include "stringmap.hpp"
+#include "value.hpp"
 #include <functional>
 #include <string_view>
 #include <utility>
@@ -15,6 +15,11 @@ public:
       alloc_callback();
     }
 
+#ifdef LOX_GC_DEBUG
+    std::cerr << "        GC: allocating " << sizeof(T) << " bytes for "
+              << typeid(T).name() << "\n";
+#endif
+
     static_assert(std::is_base_of_v<Obj, T>,
                   "GC::alloc can only be used to allocate subclasses of Obj");
     // Create new object
@@ -28,13 +33,18 @@ public:
     size_t obj_size = sizeof(T);
     bytes_allocated += obj_size;
     obj->size = obj_size;
+#ifdef LOX_GC_DEBUG
+    std::cerr << "        allocated object " << obj->to_repr() << " of size "
+              << obj_size;
+#endif
     return obj;
   }
 
-  // We want GCs to be movable but non-copyable. This is because GC contains a pointer Obj* head
-  // which is not safe to copy (if we copy a GC to another one, then delete the first, the
-  // second GC will have a dangling pointer). But moving a GC is fine.
-  // The methods with `const GC&` are copy constructors and copy assignment operators
+  // We want GCs to be movable but non-copyable. This is because GC contains a
+  // pointer Obj* head which is not safe to copy (if we copy a GC to another
+  // one, then delete the first, the second GC will have a dangling pointer).
+  // But moving a GC is fine. The methods with `const GC&` are copy constructors
+  // and copy assignment operators
   GC(const GC&) = delete;
   GC& operator=(const GC&) = delete;
   GC(GC&&) = default;

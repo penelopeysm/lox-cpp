@@ -476,9 +476,9 @@ void Parser::emit_variable_access(lox::OpCode set_opcode,
     // The set opcode will then read it from the stack and assign it to the
     // variable in position `index`. (Exactly what `index` refers to depends on
     // whether it's a local, upvalue, or global. For locals, `index` refers to
-    // the position on the stack. For globals, `index` refers to the index of
-    // the variable NAME in the constant table. The VM then looks up the name in
-    // its globals map to get the value.)
+    // the position on the stack. For globals and properties, `index` refers to
+    // the index of the variable NAME in the constant table. The VM then looks
+    // up the name in its globals map to get the value.)
     emit(set_opcode);
     emit(static_cast<uint8_t>(index));
   } else {
@@ -756,6 +756,19 @@ void Parser::or_operator(bool _) {
   parse_precedence(Precedence::OR);
   // Patch the jump to the end to here, which is after the right operand.
   patch_jump(jump_to_end, get_chunk_size());
+}
+
+void Parser::dot(bool can_assign) {
+  // dot has already been consumed; left operand already pushed to stack
+
+  // parse 'right operand' which is the field name
+  consume_or_error(TokenType::IDENTIFIER, "expected property name after '.'");
+  std::string_view field_name = previous.lexeme;
+  // push it to the constant table
+  uint8_t name_constant_index = make_constant(gc.get_string_ptr(field_name));
+
+  emit_variable_access(lox::OpCode::SET_PROPERTY, lox::OpCode::GET_PROPERTY,
+                       can_assign, name_constant_index);
 }
 
 void Parser::binary(bool _) {

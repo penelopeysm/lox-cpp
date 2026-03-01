@@ -117,9 +117,11 @@ void GC::gc() {
       break;
     }
     case ObjType::INSTANCE: {
-      // TODO
-      throw std::runtime_error(
-          "GC: mark_as_grey: unimplemented for ObjType::INSTANCE");
+      auto p = static_cast<ObjInstance*>(objptr);
+      mark_as_grey(p->klass);
+      for (const auto& [_, value] : p->fields.map) {
+        mark_as_grey(value);
+      }
     }
     }
 
