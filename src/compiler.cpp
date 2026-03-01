@@ -377,7 +377,6 @@ void Parser::parse_precedence(Precedence precedence) {
           " with precedence " +
           std::to_string(static_cast<int>(next_rule.precedence)));
     }
-    next_rule = get_rule(current.type);
   }
 }
 
