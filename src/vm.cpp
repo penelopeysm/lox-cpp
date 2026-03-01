@@ -80,6 +80,11 @@ lox::InterpretResult VM::invoke_toplevel() {
   // parse the top-level source code
   parser->parse();
   ObjFunction* top_level_fn = parser->finalise_function();
+  // if finalise_function returned nullptr, there was a compile error
+  if (top_level_fn == nullptr) {
+    // Parser will already have grumbled, no need to do it again here.
+    return InterpretResult::COMPILE_ERROR;
+  }
   // Earlier we reserved stack slot zero for the VM. We have to mirror that
   // here. We push top_level_fn to the stack first so that it doesn't get
   // cleaned up during the call to _gc.alloc.
@@ -88,17 +93,11 @@ lox::InterpretResult VM::invoke_toplevel() {
   stack_pop();
   stack_push(top_level_closure);
   call(top_level_closure, 0);
-  // if finalise_function returned nullptr, there was a compile error
-  if (top_level_closure == nullptr) {
-    // Parser will already have grumbled, no need to do it again here.
-    return InterpretResult::COMPILE_ERROR;
-  } else {
-    auto result = run();
+  auto result = run();
 #ifdef LOX_GC_DEBUG
-    _gc.list_objects();
+  _gc.list_objects();
 #endif
-    return result;
-  }
+  return result;
 }
 
 lox::Value VM::read_constant() {
