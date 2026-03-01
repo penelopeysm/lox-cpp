@@ -461,8 +461,8 @@ InterpretResult VM::run() {
         }
         auto instanceptr = static_cast<ObjInstance*>(objptr);
         ObjString* property_name = read_constant_string();
-        auto it = instanceptr->fields.map.find(property_name);
-        if (it == instanceptr->fields.map.end()) {
+        auto it = instanceptr->fields.find(property_name);
+        if (it == instanceptr->fields.end()) {
           throw std::runtime_error("undefined property '" +
                                    property_name->value + "'");
         } else {
@@ -487,7 +487,7 @@ InterpretResult VM::run() {
         ObjString* property_name = read_constant_string();
         // NOTE: operator[] does not allow for heterogeneous lookup, so we need
         // to actually access the underlying std::string
-        instanceptr->fields.map[property_name->value] = value_to_set;
+        instanceptr->fields[property_name] = value_to_set;
         // Pop the instance and value, but leave the value on the stack since
         // (a.x = b) evaluates to b
         stack_pop();

@@ -119,7 +119,8 @@ void GC::gc() {
     case ObjType::INSTANCE: {
       auto p = static_cast<ObjInstance*>(objptr);
       mark_as_grey(p->klass);
-      for (const auto& [_, value] : p->fields.map) {
+      for (const auto& [fieldname, value] : p->fields) {
+        mark_as_grey(fieldname);
         mark_as_grey(value);
       }
     }

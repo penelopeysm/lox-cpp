@@ -146,9 +146,7 @@ public:
 class ObjInstance : public Obj {
 public:
   ObjClass* klass;
-  // TODO: we could use std::unordered_map<ObjString*, Value> here to avoid
-  // creating the same string multiple times across different instances?
-  StringMap<Value> fields;
+  std::unordered_map<ObjString*, Value> fields;
 
   ObjInstance(ObjClass* klass) : Obj(ObjType::INSTANCE), klass(klass) {}
 
