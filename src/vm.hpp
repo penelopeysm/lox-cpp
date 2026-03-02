@@ -69,6 +69,9 @@ private:
   // sorted upvalues that haven't been closed yet. They sort in decreasing order
   // of the stack slot that they point to
   std::vector<ObjUpvalue*> open_upvalues;
+  // Interned string for "init", which we use when we need to look up the
+  // initialiser method of a class.
+  ObjString* initString;
 
   CallFrame& current_frame() { return call_frames.back(); }
   Chunk& get_chunk() { return current_frame().closure->function->chunk; }

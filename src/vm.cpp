@@ -71,6 +71,7 @@ VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
   stack.reserve(MAX_STACK_SIZE);
   auto top_level_fn = _gc.alloc<ObjFunction>("#toplevel#", size_t(0));
   parser = std::make_unique<Parser>(std::move(scanner), top_level_fn, _gc);
+  initString = _gc.get_string_ptr("init");
 
   // Aggressive GC: run it every time we allocate
   _gc.set_alloc_callback([this]() { this->maybe_gc(); });
@@ -586,13 +587,36 @@ InterpretResult VM::run() {
         }
         case ObjType::CLASS: {
           auto classptr = static_cast<ObjClass*>(objptr);
-          // TODO: we are ignoring arguments right now.
-          if (nargs > 0) {
-            throw std::runtime_error(
-                "class constructors don't take arguments (yet)");
-          }
           ObjInstance* inst = _gc.alloc<ObjInstance>(classptr);
-          stack_replace_top(inst);
+          // Replace the class pointer on the stack with the instance pointer
+          // (so that it doesn't get GC'd). Recall that at this point the class
+          // will have been pushed to the stack, followed by any function
+          // arguments.
+          stack[stack.size() - 1 - nargs] = inst;
+          // Check for an initialiser.
+          auto init_method_itr = classptr->methods.find(initString);
+          if (init_method_itr != classptr->methods.end()) {
+            ObjClosure* init_closure = init_method_itr->second;
+            call(init_closure, nargs);
+            // Once we've finished calling the initialiser, the return value of
+            // init() will be on top of the stack. However, we don't want that.
+            // We want to replace it with the instance that we just created.
+            // Unfortunately, we can't handle that at the VM level -- when we
+            // do call(init_closure, nargs) we modify the call frame to
+            // enter the initialiser, but we don't have any hook into when
+            // its execution finishes. So we have to handle it in the compiler:
+            // when it is compiling an initialiser, any return statements will
+            // have to compile to something that returns the instance.
+          } else {
+            // If there's no init method, we are done in terms of the stack --
+            // we just need to check that the user didn't try to pass any
+            // arguments to the nonexistent initialiser.
+            if (nargs > 0) {
+              throw std::runtime_error(
+                  "class has no initialiser but was initialised with " +
+                  std::to_string(nargs) + " arguments");
+            }
+          }
           break;
         }
         case ObjType::BOUND_METHOD: {
@@ -651,8 +675,9 @@ InterpretResult VM::run() {
 
 void VM::maybe_gc() {
   if (_gc.should_gc()) {
-
     // Mark roots as grey.
+    _gc.mark_as_grey(initString);
+
     for (const auto& v : stack) {
       _gc.mark_as_grey(v);
     }

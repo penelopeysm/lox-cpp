@@ -130,7 +130,8 @@ Parser::Parser(std::unique_ptr<Scanner> scanner, ObjFunction* fnptr, GC& gc)
     : scanner(std::move(scanner)), current(SENTINEL_EOF),
       previous(SENTINEL_EOF), errmsg(std::nullopt), gc(gc),
       compiler(
-          std::make_unique<Compiler>(fnptr, nullptr, FunctionType::TOPLEVEL)) {}
+          std::make_unique<Compiler>(fnptr, nullptr, FunctionType::TOPLEVEL)),
+      current_class(nullptr) {}
 
 void Parser::advance() {
   previous = current;
@@ -151,9 +152,12 @@ void Parser::function(bool is_class_method) {
   size_t arity = 0;
   // TODO: This copies the string. Do we need to?
   auto new_fnptr = gc.alloc<ObjFunction>(fn_name, arity);
-  auto new_compiler = std::make_unique<Compiler>(
-      new_fnptr, std::move(compiler),
-      (is_class_method ? FunctionType::CLASSMETHOD : FunctionType::FUNCTION));
+  FunctionType fn_type = is_class_method
+                             ? (fn_name == "init" ? FunctionType::CLASSINIT
+                                                  : FunctionType::CLASSMETHOD)
+                             : FunctionType::FUNCTION;
+  auto new_compiler =
+      std::make_unique<Compiler>(new_fnptr, std::move(compiler), fn_type);
   compiler = std::move(new_compiler);
   compiler->begin_scope();
   // Parse parameters (if there are any).
@@ -257,9 +261,10 @@ ObjFunction* Parser::finalise_function() {
               << "\n";
     return nullptr;
   } else {
-    // If there's no explicit return statement, we tack one on the end that
-    // returns nil.
-    emit_constant(std::monostate());
+    // Just tack a return at the end of the function body. If there was already
+    // one, it won't matter that we do this: it'll be unreachable. But if we
+    // fall off the end of a function body, this will catch us.
+    emit_auto_return_value();
     emit(lox::OpCode::RETURN);
     // Get the function object from the current compiler, and pop it off the
     // compiler stack.
@@ -413,7 +418,7 @@ void Parser::class_declaration() {
   emit(lox::OpCode::CLASS);
   emit(name_constant_index);
 
-  compiler->push_current_class();
+  push_current_class();
 
   // This call will emit code to read from the top of the stack and create
   // either a local or global variable with the class.
@@ -437,7 +442,7 @@ void Parser::class_declaration() {
   // any more.
   emit(lox::OpCode::POP);
 
-  compiler->pop_current_class();
+  pop_current_class();
 }
 
 void Parser::method() {
@@ -596,15 +601,34 @@ void Parser::statement() {
   }
 }
 
+// This function is hit whenever we have a plain `return;` (inside
+// `return_statement`) or if we fall off the end of a function without an
+// explicit return (inside `finalise_function`). It pushes the implicit return
+// value onto the stack (but does not emit the RETURN instruction).
+void Parser::emit_auto_return_value() {
+  if (compiler->get_function_type() == FunctionType::CLASSINIT) {
+    // return the instance, which is happily always at local slot 0.
+    emit(lox::OpCode::GET_LOCAL);
+    emit(static_cast<uint8_t>(0));
+  } else {
+    // No return value; return nil
+    emit_constant(std::monostate());
+  }
+}
+
 void Parser::return_statement() {
   if (compiler->get_function_type() == FunctionType::TOPLEVEL) {
     error("cannot return from top-level code", previous.line);
   }
   // Return value
   if (consume_if(TokenType::SEMICOLON)) {
-    // No return value; return nil
-    emit_constant(std::monostate());
+    // No explicit return value.
+    emit_auto_return_value();
   } else {
+    // Explicit return value.
+    if (compiler->get_function_type() == FunctionType::CLASSINIT) {
+      error("cannot return a value from an initializer", previous.line);
+    }
     expression();
     consume_or_error(TokenType::SEMICOLON, "expected ';' after return value");
   }
@@ -726,13 +750,17 @@ void Parser::number(bool _) {
 }
 
 void Parser::this_(bool _) {
-  // 1. We can't assign to this, hence the false.
-  // 2. We just treat 'this' like a local variable that happens to be at index
-  // zero.
-  if (!compiler->is_in_class()) {
+  // Note that we can't just check if the current function is CLASSMETHOD ||
+  // CLASSINIT, because we might be e.g. inside a nested function inside a
+  // class method. That's why we have a separate bit of info in the Parser that
+  // tracks whether we're currently allowed to use `this` or not.
+  if (!is_in_class()) {
     error("cannot use 'this' outside of a class", previous.line);
     return;
   }
+  // We can't assign to this, hence the false. But apart from that, we just
+  // treat 'this' like a local variable that happens to be at index 0 (which the
+  // constructor of Compiler does for us).
   variable(false);
 }
 

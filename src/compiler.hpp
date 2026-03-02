@@ -31,6 +31,7 @@ enum class FunctionType {
   TOPLEVEL,
   FUNCTION,
   CLASSMETHOD,
+  CLASSINIT,
 };
 
 struct Local {
@@ -45,8 +46,8 @@ public:
   Compiler(ObjFunction* fnptr, std::unique_ptr<Compiler> parent,
            FunctionType fn_type)
       : scope_depth(0), current_function(fnptr), fn_type(fn_type),
-        parent(std::move(parent)), current_class(nullptr) {
-    if (fn_type == FunctionType::CLASSMETHOD) {
+        parent(std::move(parent)) {
+    if (fn_type == FunctionType::CLASSMETHOD || fn_type == FunctionType::CLASSINIT) {
       // For a class method, we reserve slot 0 for the 'this' variable.
       declare_local("this");
     } else {
@@ -95,28 +96,12 @@ public:
     current_function->arity = new_arity;
   }
 
-  bool is_in_class() const { return current_class != nullptr; }
-  void push_current_class() {
-    auto new_current_class = std::make_unique<CurrentClass>();
-    new_current_class->enclosing = std::move(current_class);
-    current_class = std::move(new_current_class);
-  }
-  void pop_current_class() {
-    if (current_class == nullptr) {
-      throw std::runtime_error(
-          "Compiler::pop_current_class: no current class to pop");
-    } else {
-      current_class = std::move(current_class->enclosing);
-    }
-  }
-
 private:
   std::vector<Local> locals;
   size_t scope_depth;
   ObjFunction* current_function;
   FunctionType fn_type;
   std::unique_ptr<Compiler> parent;
-  std::unique_ptr<CurrentClass> current_class;
 };
 
 class Parser {
@@ -133,6 +118,22 @@ private:
   std::optional<std::pair<std::string, size_t>> errmsg;
   GC& gc;
   std::unique_ptr<Compiler> compiler;
+
+  bool is_in_class() const { return current_class != nullptr; }
+  void push_current_class() {
+    auto new_current_class = std::make_unique<CurrentClass>();
+    new_current_class->enclosing = std::move(current_class);
+    current_class = std::move(new_current_class);
+  }
+  void pop_current_class() {
+    if (current_class == nullptr) {
+      throw std::runtime_error(
+          "Parser::pop_current_class: no current class to pop");
+    } else {
+      current_class = std::move(current_class->enclosing);
+    }
+  }
+  std::unique_ptr<CurrentClass> current_class;
 
   // Interact with scanner
   void advance();
@@ -180,6 +181,7 @@ private:
   void define_variable(std::string_view var_name);
   void define_global_variable(std::string_view name);
   void named_variable(std::string_view lexeme, bool can_assign);
+  void emit_auto_return_value();
 
   // Interact with chunk
   void emit(uint8_t byte) { compiler->emit(byte, previous.line); }

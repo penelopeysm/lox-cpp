@@ -1,1 +1,8 @@
-print this;
+class Num {
+  init(x) {
+    this.x = x;
+  }
+}
+
+var n = Num(3);
+print n.x;

@@ -35,7 +35,7 @@ public:
     obj->size = obj_size;
 #ifdef LOX_GC_DEBUG
     std::cerr << "        allocated object " << obj->to_repr() << " of size "
-              << obj_size;
+              << obj_size << "\n";
 #endif
     return obj;
   }
