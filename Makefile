@@ -5,6 +5,11 @@ CXX := clang++
 # extension.
 CXXFLAGS := -std=c++20 -Wall -Wextra -Wimplicit-fallthrough -MMD -MP -Isrc -Wsign-conversion
 
+UNAME := $(shell uname)
+ifeq ($(UNAME),Darwin)
+	CXXFLAGS += -I$(shell brew --prefix boost)/include
+endif
+
 BUILD ?= debug
 # -g is used to include debug information in the compiled binaries, useful for
 # LLDB or else you just get a sea of assembly code!

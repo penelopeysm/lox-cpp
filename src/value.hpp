@@ -3,6 +3,7 @@
 #include "chunk.hpp"
 #include "stringmap.hpp"
 #include "value_def.hpp"
+#include <boost/unordered/unordered_flat_map.hpp>
 #include <functional>
 #include <iostream>
 #include <stddef.h>
@@ -151,7 +152,7 @@ private:
 class ObjClass : public Obj {
 public:
   ObjString* name;
-  std::unordered_map<ObjString*, ObjClosure*> methods;
+  boost::unordered_flat_map<ObjString*, ObjClosure*> methods;
 
   ObjClass(ObjString* name) : Obj(static_type), name(name) {}
 
@@ -164,7 +165,7 @@ public:
 class ObjInstance : public Obj {
 public:
   ObjClass* klass;
-  std::unordered_map<ObjString*, Value> fields;
+  boost::unordered_flat_map<ObjString*, Value> fields;
 
   ObjInstance(ObjClass* klass) : Obj(static_type), klass(klass) {}
 
