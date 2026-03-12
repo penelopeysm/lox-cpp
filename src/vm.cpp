@@ -69,7 +69,8 @@ VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
   // on the stack. That allows us to keep track of the stack size using
   // stack.size() rather than a separate variable, which can get out of sync.
   stack.reserve(MAX_STACK_SIZE);
-  auto top_level_fn = _gc.alloc<ObjFunction>("#toplevel#", size_t(0));
+  ObjString* top_level_str = _gc.get_string_ptr("#toplevel#");
+  auto top_level_fn = _gc.alloc<ObjFunction>(top_level_str, size_t(0));
   parser = std::make_unique<Parser>(std::move(scanner), top_level_fn, _gc);
   initString = _gc.get_string_ptr("init");
 
@@ -426,18 +427,11 @@ InterpretResult VM::run() {
       }
       case OpCode::DEFINE_METHOD: {
         // pop ObjClosure from stack
-        lox::Value val = stack_peek();
+        lox::Value val = stack_pop();
         auto closure_ptr = as_objptr<ObjClosure>(
             val,
             "internal error: expected ObjClosure on stack for DEFINE_METHOD");
-        // TODO: Fix this by storing ObjString* directly in ObjFunction rather
-        // than std::string. That also allows us to use stack_pop a few lines
-        // above rather than stack_peek (right now we have to guard against the
-        // closure being GC'd when calling get_string_ptr).
-        std::string method_name = closure_ptr->function->name;
-        ObjString* method_name_str = _gc.get_string_ptr(method_name);
-        // now we can pop
-        stack_pop();
+        ObjString* method_name_str = closure_ptr->function->name;
         // The class should now be at the top of the stack
         lox::Value class_val = stack_peek();
         auto class_ptr = as_objptr<ObjClass>(
@@ -665,7 +659,7 @@ InterpretResult VM::run() {
               << e.what() << "\n";
     // Print call stack
     for (auto cf = call_frames.rbegin(); cf != call_frames.rend(); ++cf) {
-      std::string fname = cf->closure->function->name;
+      const std::string& fname = cf->closure->function->name->value;
       std::size_t line = cf->get_current_debuginfo_line();
       std::cerr << " in line " << line << ", function " << fname << "\n";
     }

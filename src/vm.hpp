@@ -43,7 +43,7 @@ public:
   bool exactly_at_end() const { return ip == closure->function->chunk.size(); }
 
   void disassemble(std::ostream& out) const {
-    closure->function->chunk.disassemble(out, ip, closure->function->name);
+    closure->function->chunk.disassemble(out, ip, closure->function->name->value);
   }
 };
 

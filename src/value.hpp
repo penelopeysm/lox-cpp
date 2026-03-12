@@ -86,14 +86,14 @@ public:
 
 class ObjFunction : public Obj {
 public:
-  std::string name;
+  ObjString* name;
   size_t arity;
   std::vector<Upvalue> upvalues;
   Chunk chunk;
-  ObjFunction(std::string_view name, size_t arity)
-      : Obj(static_type), name(std::string(name)), arity(arity), chunk() {}
+  ObjFunction(ObjString* name, size_t arity)
+      : Obj(static_type), name(name), arity(arity), chunk() {}
 
-  std::string to_repr() const override { return "<fn " + name + ">"; }
+  std::string to_repr() const override { return "<fn " + name->value + ">"; }
 
   static constexpr ObjType static_type = ObjType::FUNCTION;
   static constexpr std::string_view static_type_name = "ObjFunction";
@@ -119,7 +119,7 @@ public:
   ObjClosure(ObjFunction* function) : Obj(static_type), function(function) {}
 
   std::string to_repr() const override {
-    return "<clos " + function->name + ">";
+    return "<clos " + function->name->value + ">";
   }
 
   static constexpr ObjType static_type = ObjType::CLOSURE;

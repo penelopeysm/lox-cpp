@@ -150,8 +150,13 @@ void Parser::function(bool is_class_method) {
   // Create the function object and a new compiler for it. The arity will be
   // updated on the fly later when we parse the function parameters.
   size_t arity = 0;
-  // TODO: This copies the string. Do we need to?
-  auto new_fnptr = gc.alloc<ObjFunction>(fn_name, arity);
+  ObjString* fn_name_objstr = gc.get_string_ptr(fn_name);
+  // Subtle GC workaround: fn_name_objstr could be cleaned up by the GC in the
+  // next call to alloc(). To prevent this, we're going to manually mark the
+  // ObjString to avoid it being GC'd in this round. Note that alloc() doesn't
+  // unmark before it begins; that's done at the *end* of the GC cycle.
+  fn_name_objstr->is_marked = true;
+  auto new_fnptr = gc.alloc<ObjFunction>(fn_name_objstr, arity);
   FunctionType fn_type = is_class_method
                              ? (fn_name == "init" ? FunctionType::CLASSINIT
                                                   : FunctionType::CLASSMETHOD)

@@ -37,7 +37,13 @@ void GC::mark_as_grey(const lox::Value& value) {
 void GC::mark_as_grey(Obj* objptr) {
   if (objptr != nullptr && !objptr->is_marked) {
     objptr->is_marked = true;
-    grey_stack.push_back(objptr);
+    // For strings and native functions, there are no sub-objects to mark, so
+    // we can just stop here. For other objects, we need to add them to the
+    // grey stack so that we can trace through them as well.
+    auto t = objptr->type;
+    if (t != ObjType::STRING && t != ObjType::NATIVE_FUNCTION) {
+      grey_stack.push_back(objptr);
+    }
   }
 }
 
@@ -99,6 +105,7 @@ void GC::gc() {
     }
     case ObjType::FUNCTION: {
       ObjFunction* p = static_cast<ObjFunction*>(objptr);
+      mark_as_grey(p->name);
       for (const auto& constant : p->chunk.get_constants()) {
         mark_as_grey(constant);
       }
@@ -159,6 +166,9 @@ void GC::gc() {
     Obj* next = objptr->next;
     if (!objptr->is_marked) {
       // Unreachable object.
+#ifdef LOX_GC_DEBUG
+      std::cerr << "        GC: deleting " << objptr->to_repr() << "\n";
+#endif
 
       // Remove from linked list
       if (prev != nullptr) {
