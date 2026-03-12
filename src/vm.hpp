@@ -1,8 +1,8 @@
 #pragma once
 
 #include "compiler.hpp"
-#include "stringmap.hpp"
 #include "gc.hpp"
+#include "stringmap.hpp"
 #include "value.hpp"
 #include <cstddef>
 #include <functional>
@@ -43,7 +43,8 @@ public:
   bool exactly_at_end() const { return ip == closure->function->chunk.size(); }
 
   void disassemble(std::ostream& out) const {
-    closure->function->chunk.disassemble(out, ip, closure->function->name->value);
+    closure->function->chunk.disassemble(out, ip,
+                                         closure->function->name->value);
   }
 };
 
@@ -119,6 +120,9 @@ private:
 
   void error(const std::string& message);
 
+  // `dispatch_call` figures out from the type of `callee` exactly what to do,
+  // but the actual call is done in `call()`.
+  void dispatch_call(lox::Value callee, size_t arg_count);
   void call(ObjClosure* callee, size_t arg_count);
 
   // Move the stack pointer back to the base

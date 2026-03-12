@@ -166,6 +166,7 @@ private:
   void expression_statement();
   void expression();
   void method();
+  [[nodiscard]] size_t argument_list();
   void call(bool can_assign);
   void number(bool can_assign);
   void grouping(bool can_assign);

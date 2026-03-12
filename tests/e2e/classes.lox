@@ -3,27 +3,20 @@ class Dog {
         print "Woof!";
     }
 
-    // Arity-based dispatch works on class methods too.
-    speak(name) {
-        print name + " says woof!";
-    }
-
     // Some dogs know their own name.
     speak_clever() {
         print "Hi! My name is " + this.name + ". Woof!";
     }
 }
-print Dog;         // <Lox class Dog...>
+print Dog;         // <class Dog>
 
 var d = Dog();
-print d;           // Dog
-d.speak();         // Woof!
+print d;           // <instance of <class Dog>>
+d.speak();         // "Woof!"
 
 var woof = d.speak;
-woof();            // Woof again!
-
-d.speak("Heidi");  // Heidi says woof!
+woof();            // "Woof!"
 
 var cleverd = Dog();
 cleverd.name = "Heidi";
-cleverd.speak_clever();  // Hi! My name is Heidi. Woof!
+cleverd.speak_clever();  // "Hi! My name is Heidi. Woof!"

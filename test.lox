@@ -2,7 +2,11 @@ class Num {
   init(x) {
     this.x = x;
   }
+
+  succ() {
+    return this.x + 1;
+  }
 }
 
 var n = Num(3);
-print n.x;
+print n.succ();

@@ -217,7 +217,7 @@ void Parser::function(bool is_class_method) {
   }
 }
 
-void Parser::call(bool) {
+size_t Parser::argument_list() {
   // We've already consumed the '(' token.
   size_t arg_count = 0;
   // The parsing code here is very similar to the parameter parsing code in
@@ -245,6 +245,11 @@ void Parser::call(bool) {
       }
     }
   }
+  return arg_count;
+}
+
+void Parser::call(bool) {
+  size_t arg_count = argument_list();
   emit_call(arg_count);
 }
 
@@ -854,8 +859,19 @@ void Parser::dot(bool can_assign) {
   // push it to the constant table
   uint8_t name_constant_index = make_constant(gc.get_string_ptr(field_name));
 
-  emit_variable_access(lox::OpCode::SET_PROPERTY, lox::OpCode::GET_PROPERTY,
-                       can_assign, name_constant_index);
+  // first check if it's an invocation, i.e. `a.b(...`
+  // by the time we've reached here, we've consumed `a.b` already, so we can
+  // check for the parentheses
+  if (consume_if(TokenType::LEFT_PAREN)) {
+    // this emits code to put the arguments on the stack
+    size_t nargs = argument_list();
+    emit(lox::OpCode::INVOKE);
+    emit(static_cast<uint8_t>(nargs));
+    emit(name_constant_index);
+  } else {
+    emit_variable_access(lox::OpCode::SET_PROPERTY, lox::OpCode::GET_PROPERTY,
+                         can_assign, name_constant_index);
+  }
 }
 
 void Parser::binary(bool _) {

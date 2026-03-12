@@ -1,0 +1,9 @@
+class Num {}
+
+var n = Num();
+fun succ(x) {
+  return x + 1;
+}
+n.succ = succ;
+
+print n.succ(4);

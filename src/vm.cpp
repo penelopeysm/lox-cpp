@@ -478,7 +478,7 @@ InterpretResult VM::run() {
           stack_replace_top(it->second);
         } else {
           // Maybe it's a method
-          auto classmethods = instanceptr->klass->methods;
+          const auto& classmethods = instanceptr->klass->methods;
           auto method_itr = classmethods.find(property_name);
           if (method_itr != classmethods.end()) {
             ObjClosure* method_closure = method_itr->second;
@@ -508,6 +508,34 @@ InterpretResult VM::run() {
         // (a.x = b) evaluates to b
         stack_pop();
         stack_replace_top(value_to_set);
+        break;
+      }
+      case OpCode::INVOKE: {
+        // top of the stack are the arguments, then the instance
+        uint8_t nargs = read_byte();
+        lox::Value instance_value = stack[stack.size() - 1 - nargs];
+        auto instanceptr = as_objptr<ObjInstance>(
+            instance_value, "cannot invoke method on non-instance");
+        ObjString* method_name = read_constant_string();
+        // Now we need to check if it is indeed a method
+        const auto& classmethods = instanceptr->klass->methods;
+        auto method_itr = classmethods.find(method_name);
+        if (method_itr != classmethods.end()) {
+          // Invoke the method on this instance. This is really easy because
+          // everything is already in the right place!
+          call(method_itr->second, nargs);
+        } else {
+          // If not, fall back to retrieving a field and then calling it
+          auto it = instanceptr->fields.find(method_name);
+          if (it != instanceptr->fields.end()) {
+            // Replace the instance with whatever the property was
+            stack[stack.size() - 1 - nargs] = it->second;
+            dispatch_call(it->second, nargs);
+          } else {
+            throw std::runtime_error("undefined property '" +
+                                     method_name->value + "'");
+          }
+        }
         break;
       }
       case OpCode::SET_LOCAL: {
@@ -558,72 +586,7 @@ InterpretResult VM::run() {
         // The function pointer should have been pushed to the stack before
         // the arguments.
         auto maybe_objptr = stack[stack.size() - 1 - nargs];
-        if (!std::holds_alternative<Obj*>(maybe_objptr)) {
-          throw std::runtime_error("objptr was not a pointer to Obj");
-        }
-        auto objptr = std::get<Obj*>(maybe_objptr);
-
-        switch (objptr->type) {
-        case ObjType::CLOSURE: {
-          auto closptr = static_cast<ObjClosure*>(objptr);
-          call(closptr, nargs);
-          break;
-        }
-        case ObjType::NATIVE_FUNCTION: {
-          auto native_fnptr = static_cast<ObjNativeFunction*>(objptr);
-          Value retval =
-              native_fnptr->call(nargs, &stack[stack.size() - nargs]);
-          // Pop the function and its arguments off the stack.
-          stack.resize(stack.size() - nargs - 1);
-          // Push the return value onto the stack.
-          stack_push(retval);
-          break;
-        }
-        case ObjType::CLASS: {
-          auto classptr = static_cast<ObjClass*>(objptr);
-          ObjInstance* inst = _gc.alloc<ObjInstance>(classptr);
-          // Replace the class pointer on the stack with the instance pointer
-          // (so that it doesn't get GC'd). Recall that at this point the class
-          // will have been pushed to the stack, followed by any function
-          // arguments.
-          stack[stack.size() - 1 - nargs] = inst;
-          // Check for an initialiser.
-          auto init_method_itr = classptr->methods.find(initString);
-          if (init_method_itr != classptr->methods.end()) {
-            ObjClosure* init_closure = init_method_itr->second;
-            call(init_closure, nargs);
-            // Once we've finished calling the initialiser, the return value of
-            // init() will be on top of the stack. However, we don't want that.
-            // We want to replace it with the instance that we just created.
-            // Unfortunately, we can't handle that at the VM level -- when we
-            // do call(init_closure, nargs) we modify the call frame to
-            // enter the initialiser, but we don't have any hook into when
-            // its execution finishes. So we have to handle it in the compiler:
-            // when it is compiling an initialiser, any return statements will
-            // have to compile to something that returns the instance.
-          } else {
-            // If there's no init method, we are done in terms of the stack --
-            // we just need to check that the user didn't try to pass any
-            // arguments to the nonexistent initialiser.
-            if (nargs > 0) {
-              throw std::runtime_error(
-                  "class has no initialiser but was initialised with " +
-                  std::to_string(nargs) + " arguments");
-            }
-          }
-          break;
-        }
-        case ObjType::BOUND_METHOD: {
-          auto bound_method_ptr = static_cast<ObjBoundMethod*>(objptr);
-          // Stick `this` just before the arguments.
-          stack[stack.size() - 1 - nargs] = bound_method_ptr->receiver;
-          call(bound_method_ptr->method, nargs);
-          break;
-        }
-        default: {
-          throw std::runtime_error("can only call closure or native function");
-        }
-        }
+        dispatch_call(maybe_objptr, nargs);
         break;
       }
       case OpCode::RETURN: {
@@ -664,6 +627,73 @@ InterpretResult VM::run() {
       std::cerr << " in line " << line << ", function " << fname << "\n";
     }
     return InterpretResult::RUNTIME_ERROR;
+  }
+}
+
+void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
+  if (!std::holds_alternative<Obj*>(maybe_objptr)) {
+    throw std::runtime_error("objptr was not a pointer to Obj");
+  }
+  auto objptr = std::get<Obj*>(maybe_objptr);
+  switch (objptr->type) {
+  case ObjType::CLOSURE: {
+    auto closptr = static_cast<ObjClosure*>(objptr);
+    call(closptr, nargs);
+    break;
+  }
+  case ObjType::NATIVE_FUNCTION: {
+    auto native_fnptr = static_cast<ObjNativeFunction*>(objptr);
+    Value retval = native_fnptr->call(nargs, &stack[stack.size() - nargs]);
+    // Pop the function and its arguments off the stack.
+    stack.resize(stack.size() - nargs - 1);
+    // Push the return value onto the stack.
+    stack_push(retval);
+    break;
+  }
+  case ObjType::CLASS: {
+    auto classptr = static_cast<ObjClass*>(objptr);
+    ObjInstance* inst = _gc.alloc<ObjInstance>(classptr);
+    // Replace the class pointer on the stack with the instance pointer
+    // (so that it doesn't get GC'd). Recall that at this point the class
+    // will have been pushed to the stack, followed by any function
+    // arguments.
+    stack[stack.size() - 1 - nargs] = inst;
+    // Check for an initialiser.
+    auto init_method_itr = classptr->methods.find(initString);
+    if (init_method_itr != classptr->methods.end()) {
+      ObjClosure* init_closure = init_method_itr->second;
+      call(init_closure, nargs);
+      // Once we've finished calling the initialiser, the return value of
+      // init() will be on top of the stack. However, we don't want that.
+      // We want to replace it with the instance that we just created.
+      // Unfortunately, we can't handle that at the VM level -- when we
+      // do call(init_closure, nargs) we modify the call frame to
+      // enter the initialiser, but we don't have any hook into when
+      // its execution finishes. So we have to handle it in the compiler:
+      // when it is compiling an initialiser, any return statements will
+      // have to compile to something that returns the instance.
+    } else {
+      // If there's no init method, we are done in terms of the stack --
+      // we just need to check that the user didn't try to pass any
+      // arguments to the nonexistent initialiser.
+      if (nargs > 0) {
+        throw std::runtime_error(
+            "class has no initialiser but was initialised with " +
+            std::to_string(nargs) + " arguments");
+      }
+    }
+    break;
+  }
+  case ObjType::BOUND_METHOD: {
+    auto bound_method_ptr = static_cast<ObjBoundMethod*>(objptr);
+    // Stick `this` just before the arguments.
+    stack[stack.size() - 1 - nargs] = bound_method_ptr->receiver;
+    call(bound_method_ptr->method, nargs);
+    break;
+  }
+  default: {
+    throw std::runtime_error("object is not callable");
+  }
   }
 }
 

@@ -42,7 +42,7 @@ enum class OpCode {
   GET_PROPERTY,
   SET_PROPERTY,
   DEFINE_METHOD,
-  // INVOKE,
+  INVOKE,
   // more to come
 };
 
