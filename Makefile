@@ -35,6 +35,9 @@ all: $(APP)
 try: $(APP)
 	./$(APP) test.lox
 
+bench: $(APP)
+	hyperfine --warmup 2 './$(APP) bench.lox'
+
 SRCS := $(wildcard src/*.cpp)
 OBJS := $(SRCS:.cpp=.o)
 DEPS := $(SRCS:.cpp=.d)
