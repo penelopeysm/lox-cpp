@@ -1,5 +1,6 @@
 #pragma once
 
+#include "opcode_def.hpp"
 #include "value_def.hpp"
 #include <cstdint>
 #include <cstdlib>
@@ -13,37 +14,9 @@ namespace lox {
 // enum class name, e.g., OpCode::RETURN. If you use `enum` instead, then
 // `RETURN` would be in the top-level scope.
 enum class OpCode {
-  CONSTANT,
-  RETURN,
-  NEGATE,
-  ADD,
-  SUBTRACT,
-  MULTIPLY,
-  DIVIDE,
-  NOT,
-  EQUAL,
-  GREATER,
-  LESS,
-  PRINT,
-  POP,
-  GET_GLOBAL,
-  SET_GLOBAL,
-  DEFINE_GLOBAL,
-  SET_LOCAL,
-  GET_LOCAL,
-  JUMP_IF_FALSE,
-  JUMP,
-  CALL,
-  CLOSURE,
-  GET_UPVALUE,
-  SET_UPVALUE,
-  CLOSE_UPVALUE,
-  CLASS,
-  GET_PROPERTY,
-  SET_PROPERTY,
-  DEFINE_METHOD,
-  INVOKE,
-  // more to come
+#define OPCODE_ENUM(name) name,
+  OPCODE_LIST(OPCODE_ENUM)
+#undef OPCODE_ENUM
 };
 
 struct DebugInfo {

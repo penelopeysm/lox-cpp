@@ -1,4 +1,5 @@
 #include "chunk.hpp"
+#include "opcode_def.hpp"
 #include "value.hpp"
 #include <algorithm>
 #include <cstdint>
