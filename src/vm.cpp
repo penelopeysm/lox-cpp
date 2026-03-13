@@ -240,16 +240,22 @@ InterpretResult VM::run() {
     // Retain a pointer to the raw data, so that we don't have to keep going
     // through current_frame().closure->function->chunk, which is very
     // inefficient.
-    // These variables have to be updated whenever we change the call frame
-    // (and dispatch_call() will let us know whether that happened).
     Chunk* chunkptr = get_chunk_ptr();
     uint8_t* local_ip = chunkptr->location_at(current_frame().ip);
     uint8_t* chunk_end = chunkptr->end_location();
+    // These variables have to be updated whenever we change the call frame
+    // (and dispatch_call() will let us know whether that happened).
+    auto update_chunk_and_ip = [&]() {
+      chunkptr = get_chunk_ptr();
+      local_ip = chunkptr->location_at(current_frame().ip);
+      chunk_end = chunkptr->end_location();
+    };
 
     while (local_ip < chunk_end) {
 #ifdef LOX_DEBUG
       stack_dump(std::cerr);
-      current_frame().ip = static_cast<size_t>(local_ip - chunkptr->begin_location());
+      current_frame().ip =
+          static_cast<size_t>(local_ip - chunkptr->begin_location());
       current_frame().disassemble(std::cerr);
 #endif
       uint8_t instruction = *local_ip++;
@@ -553,11 +559,7 @@ InterpretResult VM::run() {
           // Invoke the method on this instance. This is really easy because
           // everything is already in the right place!
           call(method_itr->second, nargs, local_ip);
-          // Update the current chunk and instruction pointer to reflect the new
-          // current call frame.
-          chunkptr = get_chunk_ptr();
-          local_ip = chunkptr->location_at(current_frame().ip);
-          chunk_end = chunkptr->end_location();
+          update_chunk_and_ip();
         } else {
           // If not, fall back to retrieving a field and then calling it
           auto it = instanceptr->fields.find(method_name);
@@ -565,9 +567,7 @@ InterpretResult VM::run() {
             // Replace the instance with whatever the property was
             stack[stack.size() - 1 - nargs] = it->second;
             if (dispatch_call(it->second, nargs, local_ip)) {
-              chunkptr = get_chunk_ptr();
-              local_ip = chunkptr->location_at(current_frame().ip);
-              chunk_end = chunkptr->end_location();
+              update_chunk_and_ip();
             }
           } else {
             throw std::runtime_error("undefined property '" +
@@ -625,9 +625,7 @@ InterpretResult VM::run() {
         // the arguments.
         auto maybe_objptr = stack[stack.size() - 1 - nargs];
         if (dispatch_call(maybe_objptr, nargs, local_ip)) {
-          chunkptr = get_chunk_ptr();
-          local_ip = chunkptr->location_at(current_frame().ip);
-          chunk_end = chunkptr->end_location();
+          update_chunk_and_ip();
         }
         break;
       }
@@ -647,12 +645,7 @@ InterpretResult VM::run() {
           stack.resize(current_frame().stack_start);
           stack_push(retval);
           call_frames.pop_back();
-
-          // Update the current chunk and instruction pointer to reflect the new
-          // current call frame.
-          chunkptr = get_chunk_ptr();
-          local_ip = chunkptr->location_at(current_frame().ip);
-          chunk_end = chunkptr->end_location();
+          update_chunk_and_ip();
         }
         break;
       }
