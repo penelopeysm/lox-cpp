@@ -1,10 +1,15 @@
-class Num {
-   zero() {
-      return 0;
-   }
+class F{
 }
 
-var n = Num();
-for (var i = 0; i < 1000000; i = i + 1) {
-  n.zero();
-}
+print F();
+
+// class Num {
+//    zero() {
+//       return 0;
+//    }
+// }
+// 
+// var n = Num();
+// for (var i = 0; i < 1000000; i = i + 1) {
+//   n.zero();
+// }

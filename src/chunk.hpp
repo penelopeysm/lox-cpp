@@ -77,6 +77,11 @@ public:
   size_t disassemble(std::ostream& os, size_t offset,
                      std::string_view fn_name) const;
 
+  // Exposes internals -- for VM use.
+  uint8_t* location_at(size_t offset) { return code.data() + offset; }
+  uint8_t* begin_location() { return code.data(); }
+  uint8_t* end_location() { return code.data() + code.size(); }
+
 private:
   // NOTE: std::vector will resize itself automatically when push_back needs
   // it. It has two different notions: size() is the number of elements stored,

@@ -94,17 +94,12 @@ lox::InterpretResult VM::invoke_toplevel() {
   ObjClosure* top_level_closure = _gc.alloc<ObjClosure>(top_level_fn);
   stack_pop();
   stack_push(top_level_closure);
-  call(top_level_closure, 0);
+  call(top_level_closure, 0, nullptr);
   auto result = run();
 #ifdef LOX_GC_DEBUG
   _gc.list_objects();
 #endif
   return result;
-}
-
-lox::Value VM::read_constant() {
-  uint8_t constant_index = read_byte();
-  return get_chunk().constant_at(constant_index);
 }
 
 VM& VM::stack_reset() {
@@ -141,13 +136,6 @@ lox::Value VM::stack_peek() {
     error("stack_peek: stack underflow");
   }
   return stack.back();
-}
-
-ObjString* VM::read_constant_string() {
-  lox::Value var_name_value = read_constant();
-  // This is technically unsafe since the constant could be any Value, but
-  // by construction of the parser it should always be a string.
-  return static_cast<ObjString*>(std::get<Obj*>(var_name_value));
 }
 
 void VM::close_upvalues_after(Value* addr) {
@@ -208,7 +196,7 @@ void VM::error(const std::string& message) {
 // Create a new call frame and update the VM's internal state so that we are
 // in that new frame. This function doesn't actually RUN the code in the
 // function; that's left to the VM loop!
-void VM::call(ObjClosure* callee, size_t arg_count) {
+void VM::call(ObjClosure* callee, size_t arg_count, uint8_t* local_ip) {
   if (call_frames.size() >= MAX_CALL_FRAMES) {
     throw std::runtime_error("stack overflow: too many nested function calls");
   }
@@ -218,6 +206,22 @@ void VM::call(ObjClosure* callee, size_t arg_count) {
                              std::to_string(callee->function->arity) +
                              " arguments but got " + std::to_string(arg_count));
   }
+
+  // Store the current ip in the call frame before we change it. local_ip can be
+  // nullptr for the very top-level function: at that point, current_frame
+  // hasn't even been set, so we can't do any of this.
+  if (local_ip != nullptr) {
+    Chunk* current_chunk = get_chunk_ptr();
+    uint8_t* chunk_begin = current_chunk->begin_location();
+    uint8_t* chunk_end = current_chunk->end_location();
+    if (local_ip < chunk_begin || local_ip >= chunk_end) {
+      throw std::runtime_error("internal error: call: local_ip out of bounds");
+    }
+    // static_cast is now safe since we checked it
+    current_frame().ip = static_cast<size_t>(local_ip - chunk_begin);
+  }
+
+  // Begin the next call frame.
   size_t stack_start = stack.size() - arg_count - 1;
   CallFrame new_frame(callee, 0, stack_start);
   call_frames.push_back(new_frame);
@@ -233,21 +237,32 @@ VM& VM::define_native(
 
 InterpretResult VM::run() {
   try {
+    // Retain a pointer to the raw data, so that we don't have to keep going
+    // through current_frame().closure->function->chunk, which is very
+    // inefficient.
+    // These variables have to be updated whenever we change the call frame
+    // (and dispatch_call() will let us know whether that happened).
+    Chunk* chunkptr = get_chunk_ptr();
+    uint8_t* local_ip = chunkptr->location_at(current_frame().ip);
+    uint8_t* chunk_end = chunkptr->end_location();
 
-    while (!current_frame().is_at_end()) {
+    while (local_ip < chunk_end) {
 #ifdef LOX_DEBUG
       stack_dump(std::cerr);
+      current_frame().ip = static_cast<size_t>(local_ip - chunkptr->begin_location());
       current_frame().disassemble(std::cerr);
 #endif
-      uint8_t instruction = read_byte();
+      uint8_t instruction = *local_ip++;
       switch (static_cast<OpCode>(instruction)) {
       case OpCode::CONSTANT: {
-        lox::Value c = read_constant();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
         stack_push(c);
         break;
       }
       case OpCode::CLOSURE: {
-        lox::Value c = read_constant();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
         // We know that `c` has to be a ObjFunction* here, so we can directly
         // use static_cast instead of checking the ObjType inside (even if it's
         // a bit dangerous)
@@ -260,8 +275,8 @@ InterpretResult VM::run() {
         // complete, to avoid it being GC'd while we're making the upvalues.
         stack_push(c_clos);
         for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
-          uint8_t is_local = read_byte();
-          uint8_t index = read_byte();
+          uint8_t is_local = *local_ip++;
+          uint8_t index = *local_ip++;
           if (is_local) {
             // The upvalue references a local variable in its parent function
             // (which is the current function! since we have just finished
@@ -306,7 +321,7 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::GET_UPVALUE: {
-        uint8_t upvalue_index = read_byte();
+        uint8_t upvalue_index = *local_ip++;
         lox::ObjUpvalue* upvalue =
             current_frame().closure->upvalues.at(upvalue_index);
         lox::Value actual_value = *(upvalue->location);
@@ -314,7 +329,7 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::SET_UPVALUE: {
-        uint8_t upvalue_index = read_byte();
+        uint8_t upvalue_index = *local_ip++;
         lox::ObjUpvalue* upvalue =
             current_frame().closure->upvalues.at(upvalue_index);
         lox::Value target_value = stack_peek();
@@ -400,7 +415,9 @@ InterpretResult VM::run() {
         // have a DEFINE_GLOBAL instruction followed by the constant index.
         // When we get here we have already seen the DEFINE_GLOBAL
         // instruction, so we need to read the variable name.
-        ObjString* var_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
         // After this, the parser will have emitted bytecode that pushes the
         // value of the variable onto the stack. So we need to pop that value.
         // (Or, following the book, just peek it now and pop it later, after
@@ -420,7 +437,9 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::CLASS: {
-        ObjString* class_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* class_name = static_cast<ObjString*>(std::get<Obj*>(c));
         auto new_class = _gc.alloc<ObjClass>(class_name);
         stack_push(new_class);
         break;
@@ -441,7 +460,9 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::GET_GLOBAL: {
-        ObjString* var_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
         // Now that we have the name of the variable, we can look it up in our
         // map
         auto it = globals.map.find(var_name);
@@ -452,7 +473,9 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::SET_GLOBAL: {
-        ObjString* var_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
         auto it = globals.map.find(var_name);
         if (it == globals.map.end()) {
           error("undefined variable '" + var_name->value + "'");
@@ -470,7 +493,9 @@ InterpretResult VM::run() {
         lox::Value instance_value = stack_peek();
         auto instanceptr = as_objptr<ObjInstance>(
             instance_value, "cannot access property of non-instance");
-        ObjString* property_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
         // Check first if it's a field on the instance
         auto it = instanceptr->fields.find(property_name);
         if (it != instanceptr->fields.end()) {
@@ -500,7 +525,9 @@ InterpretResult VM::run() {
         lox::Value instance_value = stack[stack.size() - 2];
         auto instanceptr = as_objptr<ObjInstance>(
             instance_value, "cannot access property of non-instance");
-        ObjString* property_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
         // NOTE: operator[] does not allow for heterogeneous lookup, so we need
         // to actually access the underlying std::string
         instanceptr->fields[property_name] = value_to_set;
@@ -512,25 +539,36 @@ InterpretResult VM::run() {
       }
       case OpCode::INVOKE: {
         // top of the stack are the arguments, then the instance
-        uint8_t nargs = read_byte();
+        uint8_t nargs = *local_ip++;
         lox::Value instance_value = stack[stack.size() - 1 - nargs];
         auto instanceptr = as_objptr<ObjInstance>(
             instance_value, "cannot invoke method on non-instance");
-        ObjString* method_name = read_constant_string();
+        uint8_t constant_index = *local_ip++;
+        lox::Value c = chunkptr->constant_at(constant_index);
+        ObjString* method_name = static_cast<ObjString*>(std::get<Obj*>(c));
         // Now we need to check if it is indeed a method
         const auto& classmethods = instanceptr->klass->methods;
         auto method_itr = classmethods.find(method_name);
         if (method_itr != classmethods.end()) {
           // Invoke the method on this instance. This is really easy because
           // everything is already in the right place!
-          call(method_itr->second, nargs);
+          call(method_itr->second, nargs, local_ip);
+          // Update the current chunk and instruction pointer to reflect the new
+          // current call frame.
+          chunkptr = get_chunk_ptr();
+          local_ip = chunkptr->location_at(current_frame().ip);
+          chunk_end = chunkptr->end_location();
         } else {
           // If not, fall back to retrieving a field and then calling it
           auto it = instanceptr->fields.find(method_name);
           if (it != instanceptr->fields.end()) {
             // Replace the instance with whatever the property was
             stack[stack.size() - 1 - nargs] = it->second;
-            dispatch_call(it->second, nargs);
+            if (dispatch_call(it->second, nargs, local_ip)) {
+              chunkptr = get_chunk_ptr();
+              local_ip = chunkptr->location_at(current_frame().ip);
+              chunk_end = chunkptr->end_location();
+            }
           } else {
             throw std::runtime_error("undefined property '" +
                                      method_name->value + "'");
@@ -539,7 +577,7 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::SET_LOCAL: {
-        uint8_t local_index = read_byte();
+        uint8_t local_index = *local_ip++;
         if (static_cast<size_t>(local_index) > stack.size()) {
           std::cerr << "stack_size=" << stack.size()
                     << ", local_index=" << +local_index << "\n";
@@ -549,7 +587,7 @@ InterpretResult VM::run() {
         break;
       }
       case OpCode::GET_LOCAL: {
-        uint8_t local_index = read_byte();
+        uint8_t local_index = *local_ip++;
         if (static_cast<size_t>(local_index) > stack.size()) {
           std::cerr << "stack_size=" << stack.size()
                     << ", local_index=" << +local_index << "\n";
@@ -564,29 +602,33 @@ InterpretResult VM::run() {
         // logical shortcircuiting later.
         lox::Value condition = stack_peek();
         if (!lox::is_truthy(condition)) {
-          uint8_t high_byte = read_byte();
-          uint8_t low_byte = read_byte();
+          uint8_t high_byte = *local_ip++;
+          uint8_t low_byte = *local_ip++;
           ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
-          current_frame().shift_ip(jump_offset);
+          local_ip += jump_offset;
         } else {
-          current_frame().shift_ip(2); // skip the jump offset bytes
+          local_ip += 2; // skip the jump offset bytes
         }
         break;
       }
       case OpCode::JUMP: {
-        uint8_t high_byte = read_byte();
-        uint8_t low_byte = read_byte();
+        uint8_t high_byte = *local_ip++;
+        uint8_t low_byte = *local_ip++;
         ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
-        current_frame().shift_ip(jump_offset);
+        local_ip += jump_offset;
         break;
       }
       case OpCode::CALL: {
         // This is the number of arguments pushed to the stack.
-        uint8_t nargs = read_byte();
+        uint8_t nargs = *local_ip++;
         // The function pointer should have been pushed to the stack before
         // the arguments.
         auto maybe_objptr = stack[stack.size() - 1 - nargs];
-        dispatch_call(maybe_objptr, nargs);
+        if (dispatch_call(maybe_objptr, nargs, local_ip)) {
+          chunkptr = get_chunk_ptr();
+          local_ip = chunkptr->location_at(current_frame().ip);
+          chunk_end = chunkptr->end_location();
+        }
         break;
       }
       case OpCode::RETURN: {
@@ -605,12 +647,18 @@ InterpretResult VM::run() {
           stack.resize(current_frame().stack_start);
           stack_push(retval);
           call_frames.pop_back();
+
+          // Update the current chunk and instruction pointer to reflect the new
+          // current call frame.
+          chunkptr = get_chunk_ptr();
+          local_ip = chunkptr->location_at(current_frame().ip);
+          chunk_end = chunkptr->end_location();
         }
         break;
       }
       }
     }
-    if (current_frame().exactly_at_end()) {
+    if (local_ip == chunk_end) {
       // Successfully read all bytes.
       return InterpretResult::OK;
     } else {
@@ -630,7 +678,8 @@ InterpretResult VM::run() {
   }
 }
 
-void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
+bool VM::dispatch_call(lox::Value maybe_objptr, size_t nargs,
+                       uint8_t* local_ip) {
   if (!std::holds_alternative<Obj*>(maybe_objptr)) {
     throw std::runtime_error("objptr was not a pointer to Obj");
   }
@@ -638,8 +687,8 @@ void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
   switch (objptr->type) {
   case ObjType::CLOSURE: {
     auto closptr = static_cast<ObjClosure*>(objptr);
-    call(closptr, nargs);
-    break;
+    call(closptr, nargs, local_ip);
+    return true;
   }
   case ObjType::NATIVE_FUNCTION: {
     auto native_fnptr = static_cast<ObjNativeFunction*>(objptr);
@@ -648,7 +697,7 @@ void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
     stack.resize(stack.size() - nargs - 1);
     // Push the return value onto the stack.
     stack_push(retval);
-    break;
+    return false;
   }
   case ObjType::CLASS: {
     auto classptr = static_cast<ObjClass*>(objptr);
@@ -662,7 +711,7 @@ void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
     auto init_method_itr = classptr->methods.find(initString);
     if (init_method_itr != classptr->methods.end()) {
       ObjClosure* init_closure = init_method_itr->second;
-      call(init_closure, nargs);
+      call(init_closure, nargs, local_ip);
       // Once we've finished calling the initialiser, the return value of
       // init() will be on top of the stack. However, we don't want that.
       // We want to replace it with the instance that we just created.
@@ -672,6 +721,9 @@ void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
       // its execution finishes. So we have to handle it in the compiler:
       // when it is compiling an initialiser, any return statements will
       // have to compile to something that returns the instance.
+      // Luckily, the compiler DOES handle this, so we are done here. We can
+      // just return true.
+      return true;
     } else {
       // If there's no init method, we are done in terms of the stack --
       // we just need to check that the user didn't try to pass any
@@ -681,15 +733,15 @@ void VM::dispatch_call(lox::Value maybe_objptr, size_t nargs) {
             "class has no initialiser but was initialised with " +
             std::to_string(nargs) + " arguments");
       }
+      return false;
     }
-    break;
   }
   case ObjType::BOUND_METHOD: {
     auto bound_method_ptr = static_cast<ObjBoundMethod*>(objptr);
     // Stick `this` just before the arguments.
     stack[stack.size() - 1 - nargs] = bound_method_ptr->receiver;
-    call(bound_method_ptr->method, nargs);
-    break;
+    call(bound_method_ptr->method, nargs, local_ip);
+    return true;
   }
   default: {
     throw std::runtime_error("object is not callable");

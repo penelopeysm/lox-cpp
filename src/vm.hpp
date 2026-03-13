@@ -75,7 +75,7 @@ private:
   ObjString* initString;
 
   CallFrame& current_frame() { return call_frames.back(); }
-  Chunk& get_chunk() { return current_frame().closure->function->chunk; }
+  Chunk* get_chunk_ptr() { return &current_frame().closure->function->chunk; }
 
   void close_upvalues_after(Value* addr);
 
@@ -109,21 +109,19 @@ private:
     stack[stack_index] = value;
   }
 
-  // Read a byte and advance the instruction pointer.
-  uint8_t read_byte() { return current_frame().read_byte(); }
-  // Read a constant using the current byte, and advance the instruction
-  // pointer.
-  lox::Value read_constant();
-  // Read the name of a global variable from the chunk's constant table, and
-  // advance the instruction pointer.
-  lox::ObjString* read_constant_string();
-
   void error(const std::string& message);
 
   // `dispatch_call` figures out from the type of `callee` exactly what to do,
-  // but the actual call is done in `call()`.
-  void dispatch_call(lox::Value callee, size_t arg_count);
-  void call(ObjClosure* callee, size_t arg_count);
+  // but the actual call is done in `call()`. It returns a bool indicating
+  // whether the call frame was changed. (This doesn't always happen! If it's a
+  // native function, or a class constructor that isn't an initialiser, there's
+  // no new call frame to jump into: the return value is just placed on the
+  // stack.) 
+  // The reason why we need to know whether the call frame was changed is that
+  // if it was, then we need to update the local variables like local_ip inside
+  // the VM loop. If not, then we don't need to.
+  [[nodiscard]] bool dispatch_call(lox::Value callee, size_t arg_count, uint8_t* local_ip);
+  void call(ObjClosure* callee, size_t arg_count, uint8_t* local_ip);
 
   // Move the stack pointer back to the base
   VM& stack_reset();
