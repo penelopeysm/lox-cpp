@@ -4,15 +4,15 @@ class Animal {
     }
 }
 
-class Dog extends Animal {
+class Dog < Animal {
     speak() {
         print "Woof!";
     }
 }
 
-class Swan extends Animal {}
+class Swan < Animal {}
 
-class TrumpeterSwan extends Swan {
+class TrumpeterSwan < Swan {
     speak () {
         super.speak();
         print "HOOOOOONK!";

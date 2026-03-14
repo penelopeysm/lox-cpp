@@ -7,8 +7,8 @@ fun makeCounter() {
     return count;
 }
 var counter = makeCounter();
-counter(); // should print 1.0
-counter(); // should print 2.0
+counter(); // should print 1
+counter(); // should print 2
 
 var g = "global";
 fun scopes() {
