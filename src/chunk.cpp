@@ -264,6 +264,13 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
     os << "INVOKE " << constant << " nargs=" << +nargs << "\n";
     return offset + 3;
   }
+  case OpCode::SUPER_INVOKE: {
+    uint8_t nargs = code[offset + 1];
+    uint8_t constant_index = code[offset + 2]; // name of the method
+    Value constant = constants[constant_index];
+    os << "SUPER_INVOKE " << constant << " nargs=" << +nargs << "\n";
+    return offset + 3;
+  }
   case OpCode::GET_GLOBAL: {
     uint8_t constant_index = code[offset + 1];
     Value constant = constants[constant_index];

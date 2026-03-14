@@ -683,6 +683,8 @@ InterpretResult VM::run() {
     // ObjClosure from the superclass, coupled with the *current* instance we're
     // using. The superclass is at the top of the stack right now.
     lox::Value superclass_value = stack_pop();
+    // TODO: We don't need to check this; by construction this should always be
+    // the superclass.
     auto superclass_ptr = as_objptr<ObjClass>(
         superclass_value, "cannot get superclass method from non-class");
     const auto& superclass_methods = superclass_ptr->methods;
@@ -694,11 +696,41 @@ InterpretResult VM::run() {
     ObjClosure* method_closure = method_itr->second;
     // The instance is now at the top of the stack.
     lox::Value instance_value = stack_peek();
+    // TODO: We don't need to check this; by construction this should always be
+    // the instance.
     auto instance_ptr = as_objptr<ObjInstance>(
         instance_value, "cannot get superclass method for non-instance");
     ObjBoundMethod* bound_method =
         _gc.alloc<ObjBoundMethod>(instance_ptr, method_closure);
     stack_replace_top(bound_method);
+    DISPATCH();
+  }
+  DO_SUPER_INVOKE: {
+    // read the method name
+    uint8_t constant_index = *local_ip++;
+    lox::Value method_name_val = chunkptr->constant_at(constant_index);
+    ObjString* method_name =
+        static_cast<ObjString*>(std::get<Obj*>(method_name_val));
+    uint8_t nargs = *local_ip++;
+    // top of the stack is the superclass, which we use to get the method.
+    lox::Value superclass_value = stack_pop();
+    // TODO: We don't need to check this; by construction this should always be
+    // the superclass.
+    auto superclass_ptr = as_objptr<ObjClass>(
+        superclass_value, "cannot invoke superclass method from non-class");
+    const auto& superclass_methods = superclass_ptr->methods;
+    auto method_itr = superclass_methods.find(method_name);
+    if (method_itr == superclass_methods.end()) {
+      throw std::runtime_error("undefined method '" + method_name->value +
+                               "' in superclass");
+    }
+    ObjClosure* method_closure = method_itr->second;
+    // now we can just call the method closure (which was obtained from the
+    // superclass) with the instance + arguments (which were arranged nicely
+    // for us already)
+    if (dispatch_call(method_closure, nargs, local_ip)) {
+      update_chunk_and_ip();
+    }
     DISPATCH();
   }
 

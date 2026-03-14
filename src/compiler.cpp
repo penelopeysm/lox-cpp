@@ -813,12 +813,35 @@ void Parser::super_(bool _) {
   consume_or_error(TokenType::IDENTIFIER, "expected superclass method name");
   std::string_view method_name = previous.lexeme;
   uint8_t name_constant_index = make_constant(gc.get_string_ptr(method_name));
-  // push instance to stack
-  named_variable("this", false);
-  // push superclass to stack
-  named_variable("super", false);
-  emit(lox::OpCode::GET_SUPER);
-  emit(name_constant_index);
+
+  // Check for method invocation.
+  if (consume_if(TokenType::LEFT_PAREN)) {
+    // We can only call `super.foo()` from inside a class method, so we know
+    // that `this` is already available as a local variable at index 0. That
+    // means that when we invoke `super.foo()`, we don't need to worry about
+    // the receiver: we just need to put the right closure on the stack,
+    // followed by the arguments, and then call it.
+    //
+    // Start by putting the instance (i.e. `this`) on the stack, plus the
+    // arguments. That's almost as if we were doing `this.foo()`.
+    named_variable("this", false);
+    size_t arg_count = argument_list();
+    // But additionally, after this, we'll also put the superclass on the
+    // stack, so that SUPER_INVOKE can use it at runtime to find the right
+    // ObjClosure to call (and also get rid of it from the stack).
+    named_variable("super", false);
+    emit(lox::OpCode::SUPER_INVOKE);
+    emit(name_constant_index);
+    emit(static_cast<uint8_t>(arg_count));
+  } else {
+    // boring, just a method access
+    // push instance to stack
+    named_variable("this", false);
+    // push superclass to stack
+    named_variable("super", false);
+    emit(lox::OpCode::GET_SUPER);
+    emit(name_constant_index);
+  }
 }
 
 void Parser::literal(bool _) {
