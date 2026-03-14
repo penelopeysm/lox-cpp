@@ -831,8 +831,8 @@ void Parser::super_(bool _) {
     // ObjClosure to call (and also get rid of it from the stack).
     named_variable("super", false);
     emit(lox::OpCode::SUPER_INVOKE);
-    emit(name_constant_index);
     emit(static_cast<uint8_t>(arg_count));
+    emit(name_constant_index);
   } else {
     // boring, just a method access
     // push instance to stack

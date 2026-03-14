@@ -706,12 +706,12 @@ InterpretResult VM::run() {
     DISPATCH();
   }
   DO_SUPER_INVOKE: {
-    // read the method name
+    // read the arity + method name
+    uint8_t nargs = *local_ip++;
     uint8_t constant_index = *local_ip++;
     lox::Value method_name_val = chunkptr->constant_at(constant_index);
     ObjString* method_name =
         static_cast<ObjString*>(std::get<Obj*>(method_name_val));
-    uint8_t nargs = *local_ip++;
     // top of the stack is the superclass, which we use to get the method.
     lox::Value superclass_value = stack_pop();
     // TODO: We don't need to check this; by construction this should always be
@@ -727,10 +727,10 @@ InterpretResult VM::run() {
     ObjClosure* method_closure = method_itr->second;
     // now we can just call the method closure (which was obtained from the
     // superclass) with the instance + arguments (which were arranged nicely
-    // for us already)
-    if (dispatch_call(method_closure, nargs, local_ip)) {
-      update_chunk_and_ip();
-    }
+    // for us already). We don't need to use dispatch_call because we know
+    // that it's definitely an ObjClosure.
+    call(method_closure, nargs, local_ip);
+    update_chunk_and_ip();
     DISPATCH();
   }
 
