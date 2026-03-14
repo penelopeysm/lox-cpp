@@ -10,6 +10,7 @@ namespace lox {
 
 struct CurrentClass {
   std::unique_ptr<CurrentClass> enclosing;
+  bool has_superclass;
 };
 
 enum class Precedence {
@@ -47,7 +48,8 @@ public:
            FunctionType fn_type)
       : scope_depth(0), current_function(fnptr), fn_type(fn_type),
         parent(std::move(parent)) {
-    if (fn_type == FunctionType::CLASSMETHOD || fn_type == FunctionType::CLASSINIT) {
+    if (fn_type == FunctionType::CLASSMETHOD ||
+        fn_type == FunctionType::CLASSINIT) {
       // For a class method, we reserve slot 0 for the 'this' variable.
       declare_local("this");
     } else {
@@ -121,9 +123,25 @@ private:
 
   bool is_in_class() const { return current_class != nullptr; }
   void push_current_class() {
-    auto new_current_class = std::make_unique<CurrentClass>();
-    new_current_class->enclosing = std::move(current_class);
+    auto new_current_class =
+        std::make_unique<CurrentClass>(std::move(current_class), false);
     current_class = std::move(new_current_class);
+  }
+  void mark_current_class_as_having_superclass() {
+    if (current_class == nullptr) {
+      throw std::runtime_error(
+          "Parser::mark_current_class_as_having_superclass: no current class");
+    } else {
+      current_class->has_superclass = true;
+    }
+  }
+  bool current_class_has_superclass() const {
+    if (current_class == nullptr) {
+      throw std::runtime_error(
+          "Parser::current_class_has_superclass: no current class");
+    } else {
+      return current_class->has_superclass;
+    }
   }
   void pop_current_class() {
     if (current_class == nullptr) {
@@ -179,6 +197,7 @@ private:
   void variable(bool can_assign);
   void literal(bool can_assign);
   void this_(bool can_assign);
+  void super_(bool can_assign);
   void define_variable(std::string_view var_name);
   void define_global_variable(std::string_view name);
   void named_variable(std::string_view lexeme, bool can_assign);
@@ -277,7 +296,7 @@ private:
     case TokenType::RETURN:
       return Rule{NULL, NULL, Precedence::NONE};
     case TokenType::SUPER:
-      return Rule{NULL, NULL, Precedence::NONE};
+      return Rule{&Parser::super_, NULL, Precedence::NONE};
     case TokenType::THIS:
       return Rule{&Parser::this_, NULL, Precedence::NONE};
     case TokenType::TRUE:

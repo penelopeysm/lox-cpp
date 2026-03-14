@@ -1,0 +1,21 @@
+class Animal {
+  speak() {
+    print "Animal!";
+  }
+}
+
+class Dog < Animal {
+  walk() {
+    print "...";
+  }
+
+  walk_and_speak() {
+    this.walk();
+    super.speak();
+  }
+}
+
+var d = Dog();
+d.walk();
+d.speak();
+d.walk_and_speak();

@@ -316,6 +316,16 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
     os << "CALL nargs=" << +nargs << "\n";
     return offset + 2;
   }
+  case OpCode::INHERIT: {
+    os << "INHERIT\n";
+    return offset + 1;
+  }
+  case OpCode::GET_SUPER: {
+    uint8_t constant_index = code[offset + 1];
+    Value constant = constants[constant_index];
+    os << "GET_SUPER " << constant << "\n";
+    return offset + 2;
+  }
   }
   throw std::runtime_error("loxc: Chunk::disassemble: unknown opcode " +
                            std::to_string(instruction));

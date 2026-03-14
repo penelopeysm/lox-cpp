@@ -73,7 +73,7 @@ void GC::gc() {
   // requires knowledge of the VM's state).
 
 #ifdef LOX_GC_DEBUG
-  std::cerr << "\n\n\n        GC: starting mark-and-sweep\n";
+  std::cerr << "        GC: starting mark-and-sweep\n";
   // list_objects();
   size_t nobjs_deleted = 0;
   size_t nbytes_deleted = 0;
@@ -197,7 +197,7 @@ void GC::gc() {
 
 #ifdef LOX_GC_DEBUG
   std::cerr << "        GC: finished mark-and-sweep, deleted " << nobjs_deleted
-            << " objects, " << nbytes_deleted << " bytes\n\n\n";
+            << " objects, " << nbytes_deleted << " bytes\n";
 #endif
 
   // Update the GC threshold.

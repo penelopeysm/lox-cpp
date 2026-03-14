@@ -16,7 +16,7 @@ public:
     }
 
 #ifdef LOX_GC_DEBUG
-    std::cerr << "        GC: allocating " << sizeof(T) << " bytes for "
+    std::cerr << "\n        GC: allocating " << sizeof(T) << " bytes for "
               << typeid(T).name() << "\n";
 #endif
 
@@ -34,7 +34,7 @@ public:
     bytes_allocated += obj_size;
     obj->size = obj_size;
 #ifdef LOX_GC_DEBUG
-    std::cerr << "        allocated object " << obj->to_repr() << " of size "
+    std::cerr << "        GC: allocated object " << obj->to_repr() << " of size "
               << obj_size << "\n";
 #endif
     return obj;

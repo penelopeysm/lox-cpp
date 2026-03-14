@@ -235,7 +235,20 @@ VM& VM::define_native(
   return *this;
 }
 
+// Note, we can't use a function for this since goto won't work from inside a
+// function
+#ifdef LOX_DEBUG
+#define DISPATCH()                                                             \
+  do {                                                                         \
+    stack_dump(std::cerr);                                                     \
+    current_frame().ip =                                                       \
+        static_cast<size_t>(local_ip - chunkptr->begin_location());            \
+    current_frame().disassemble(std::cerr);                                    \
+    goto* dispatch_table[*local_ip++];                                         \
+  } while (false)
+#else
 #define DISPATCH() goto* dispatch_table[*local_ip++]
+#endif
 
 InterpretResult VM::run() {
   try {
@@ -259,404 +272,435 @@ InterpretResult VM::run() {
 #undef DO_LABEL
     };
 
-    while (local_ip < chunk_end) {
-#ifdef LOX_DEBUG
-      stack_dump(std::cerr);
-      current_frame().ip =
-          static_cast<size_t>(local_ip - chunkptr->begin_location());
-      current_frame().disassemble(std::cerr);
-#endif
-      DISPATCH();
+    DISPATCH();
 
-    DO_CONSTANT: {
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      stack_push(c);
-      DISPATCH();
-    }
-    DO_CLOSURE: {
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      // We know that `c` has to be a ObjFunction* here, so we can directly
-      // use static_cast instead of checking the ObjType inside (even if it's
-      // a bit dangerous)
-      auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
-      stack_push(c_fn); // avoid GCing the function while the closure is being
-                        // created
-      auto c_clos = _gc.alloc<ObjClosure>(c_fn);
-      stack_pop();
-      // we'll push the closure to the stack first even though it's not
-      // complete, to avoid it being GC'd while we're making the upvalues.
-      stack_push(c_clos);
-      for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
-        uint8_t is_local = *local_ip++;
-        uint8_t index = *local_ip++;
-        if (is_local) {
-          // The upvalue references a local variable in its parent function
-          // (which is the current function! since we have just finished
-          // compiling the inner function and have now exited back to the
-          // parent).
-          Value* local_value = get_local_variable_address(index);
-          // local_value is somewhere on the stack. Let's check if the VM
-          // already has an open upvalue pointing to that stack slot. If so,
-          // we can reuse it.
-          // NOTE: lambda captures are kind of weird in C++! You can't use
-          // local_value inside the lambda unless you capture it by
-          // including it inside the square brackets (which is a capture
-          // list). Then there are also lots of different ways to capture
-          // things. You can capture by reference ([&something]) or by
-          // value ([something]), and you can also capture *everything* by
-          // reference ([&]) or by value ([=]).
-          // TODO: this is a bit suboptimal because our open_upvalues
-          // vector is not sorted. That means that every search is O(n). We
-          // could optimise this by keeping open_upvalues sorted and then
-          // stopping once we have passed the relevant stack slot. The book
-          // does this, but I didn't want to bother with the manual pointer
-          // stuff.
-          auto it = std::find_if(open_upvalues.begin(), open_upvalues.end(),
-                                 [local_value](ObjUpvalue* upv) {
-                                   return upv->location == local_value;
-                                 });
-          if (it != open_upvalues.end()) {
-            c_clos->upvalues.push_back(*it);
-          } else {
-            // Not found so we can create a new upvalue
-            ObjUpvalue* upvalue = _gc.alloc<ObjUpvalue>(local_value);
-            open_upvalues.push_back(upvalue);
-            c_clos->upvalues.push_back(upvalue);
-          }
+  DO_CONSTANT: {
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    stack_push(c);
+    DISPATCH();
+  }
+  DO_CLOSURE: {
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    // We know that `c` has to be a ObjFunction* here, so we can directly
+    // use static_cast instead of checking the ObjType inside (even if it's
+    // a bit dangerous)
+    auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
+    stack_push(c_fn); // avoid GCing the function while the closure is being
+                      // created
+    auto c_clos = _gc.alloc<ObjClosure>(c_fn);
+    stack_pop();
+    // we'll push the closure to the stack first even though it's not
+    // complete, to avoid it being GC'd while we're making the upvalues.
+    stack_push(c_clos);
+    for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
+      uint8_t is_local = *local_ip++;
+      uint8_t index = *local_ip++;
+      if (is_local) {
+        // The upvalue references a local variable in its parent function
+        // (which is the current function! since we have just finished
+        // compiling the inner function and have now exited back to the
+        // parent).
+        Value* local_value = get_local_variable_address(index);
+        // local_value is somewhere on the stack. Let's check if the VM
+        // already has an open upvalue pointing to that stack slot. If so,
+        // we can reuse it.
+        // NOTE: lambda captures are kind of weird in C++! You can't use
+        // local_value inside the lambda unless you capture it by
+        // including it inside the square brackets (which is a capture
+        // list). Then there are also lots of different ways to capture
+        // things. You can capture by reference ([&something]) or by
+        // value ([something]), and you can also capture *everything* by
+        // reference ([&]) or by value ([=]).
+        // TODO: this is a bit suboptimal because our open_upvalues
+        // vector is not sorted. That means that every search is O(n). We
+        // could optimise this by keeping open_upvalues sorted and then
+        // stopping once we have passed the relevant stack slot. The book
+        // does this, but I didn't want to bother with the manual pointer
+        // stuff.
+        auto it = std::find_if(open_upvalues.begin(), open_upvalues.end(),
+                               [local_value](ObjUpvalue* upv) {
+                                 return upv->location == local_value;
+                               });
+        if (it != open_upvalues.end()) {
+          c_clos->upvalues.push_back(*it);
         } else {
-          // The upvalue references an upvalue in the parent function, so we
-          // can just copy the pointer to that upvalue.
-          c_clos->upvalues.push_back(
-              current_frame().closure->upvalues.at(index));
+          // Not found so we can create a new upvalue
+          ObjUpvalue* upvalue = _gc.alloc<ObjUpvalue>(local_value);
+          open_upvalues.push_back(upvalue);
+          c_clos->upvalues.push_back(upvalue);
         }
-      }
-      DISPATCH();
-    }
-    DO_GET_UPVALUE: {
-      uint8_t upvalue_index = *local_ip++;
-      lox::ObjUpvalue* upvalue =
-          current_frame().closure->upvalues.at(upvalue_index);
-      lox::Value actual_value = *(upvalue->location);
-      stack_push(actual_value);
-      DISPATCH();
-    }
-    DO_SET_UPVALUE: {
-      uint8_t upvalue_index = *local_ip++;
-      lox::ObjUpvalue* upvalue =
-          current_frame().closure->upvalues.at(upvalue_index);
-      lox::Value target_value = stack_peek();
-      *(upvalue->location) = target_value;
-      DISPATCH();
-    }
-    DO_CLOSE_UPVALUE: {
-      // This effectively only closes the upvalue that's at the top of the
-      // stack.
-      close_upvalues_after(stack_top_address());
-      stack_pop();
-      DISPATCH();
-    }
-    DO_NEGATE: {
-      lox::Value value = stack_pop();
-      if (std::holds_alternative<double>(value)) {
-        stack_push(-std::get<double>(value));
       } else {
-        error("operand must be a number");
+        // The upvalue references an upvalue in the parent function, so we
+        // can just copy the pointer to that upvalue.
+        c_clos->upvalues.push_back(current_frame().closure->upvalues.at(index));
       }
-      DISPATCH();
     }
-    DO_NOT: {
-      stack_modify_top(
-          [](const lox::Value& value) { return !(lox::is_truthy(value)); });
-      DISPATCH();
+    DISPATCH();
+  }
+  DO_GET_UPVALUE: {
+    uint8_t upvalue_index = *local_ip++;
+    lox::ObjUpvalue* upvalue =
+        current_frame().closure->upvalues.at(upvalue_index);
+    lox::Value actual_value = *(upvalue->location);
+    stack_push(actual_value);
+    DISPATCH();
+  }
+  DO_SET_UPVALUE: {
+    uint8_t upvalue_index = *local_ip++;
+    lox::ObjUpvalue* upvalue =
+        current_frame().closure->upvalues.at(upvalue_index);
+    lox::Value target_value = stack_peek();
+    *(upvalue->location) = target_value;
+    DISPATCH();
+  }
+  DO_CLOSE_UPVALUE: {
+    // This effectively only closes the upvalue that's at the top of the
+    // stack.
+    close_upvalues_after(stack_top_address());
+    stack_pop();
+    DISPATCH();
+  }
+  DO_NEGATE: {
+    lox::Value value = stack_pop();
+    if (std::holds_alternative<double>(value)) {
+      stack_push(-std::get<double>(value));
+    } else {
+      error("operand must be a number");
     }
-    DO_ADD: {
-      lox::Value b = stack_pop();
-      lox::Value a = stack_peek();
-      if (std::holds_alternative<double>(a) &&
-          std::holds_alternative<double>(b)) {
-        // Attempts at perf optimisations using Instruments.app... don't think
-        // it made much of a difference though.
-        stack_replace_top(std::get<double>(a) + std::get<double>(b));
-      } else {
-        stack_pop(); // pop a
-        stack_push(lox::add(a, b, _gc));
-      }
-      DISPATCH();
+    DISPATCH();
+  }
+  DO_NOT: {
+    stack_modify_top(
+        [](const lox::Value& value) { return !(lox::is_truthy(value)); });
+    DISPATCH();
+  }
+  DO_ADD: {
+    lox::Value b = stack_pop();
+    lox::Value a = stack_peek();
+    if (std::holds_alternative<double>(a) &&
+        std::holds_alternative<double>(b)) {
+      // Attempts at perf optimisations using Instruments.app... don't think
+      // it made much of a difference though.
+      stack_replace_top(std::get<double>(a) + std::get<double>(b));
+    } else {
+      stack_pop(); // pop a
+      stack_push(lox::add(a, b, _gc));
     }
-    DO_SUBTRACT: {
-      handle_binary_op([](double a, double b) { return a - b; });
-      DISPATCH();
+    DISPATCH();
+  }
+  DO_SUBTRACT: {
+    handle_binary_op([](double a, double b) { return a - b; });
+    DISPATCH();
+  }
+  DO_MULTIPLY: {
+    handle_binary_op([](double a, double b) { return a * b; });
+    DISPATCH();
+  }
+  DO_DIVIDE: {
+    handle_binary_op([](double a, double b) { return a / b; });
+    DISPATCH();
+  }
+  DO_EQUAL: {
+    lox::Value b = stack_pop();
+    lox::Value a = stack_pop();
+    stack_push(lox::is_equal(a, b));
+    DISPATCH();
+  }
+  DO_GREATER: {
+    handle_binary_op([](double a, double b) { return a > b; });
+    DISPATCH();
+  }
+  DO_LESS: {
+    handle_binary_op([](double a, double b) { return a < b; });
+    DISPATCH();
+  }
+  DO_PRINT: {
+    lox::Value value = stack_pop();
+    // operator<< on Value is already defined to print the correct
+    // representation
+    std::cout << value << "\n";
+    DISPATCH();
+  }
+  DO_POP: {
+    stack_pop();
+    DISPATCH();
+  }
+  DO_DEFINE_GLOBAL: {
+    // The parser will have pushed the variable name (as a string) onto
+    // the chunk's constant table. Separately, in the bytecode, it will
+    // have a DEFINE_GLOBAL instruction followed by the constant index.
+    // When we get here we have already seen the DEFINE_GLOBAL
+    // instruction, so we need to read the variable name.
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    // After this, the parser will have emitted bytecode that pushes the
+    // value of the variable onto the stack. So we need to pop that value.
+    // (Or, following the book, just peek it now and pop it later, after
+    // we've stored it.)
+    lox::Value var_value = stack_peek();
+    // Then we can define the global variable by adding it to our map.
+    // NOTE: operator[] will create a new entry if the key doesn't exist
+    // yet. It returns a reference to the value, which can then be
+    // assigned to. So this doesn't desugar to something like setindex! in
+    // Julia, it is just a composition of operator[] and assignment.
+    //
+    // We have to access the actual underlying string value here because we
+    // are creating a new key in the map (which takes std::string as
+    // keys)
+    globals.map[var_name->value] = var_value;
+    stack_pop(); // now pop the value
+    DISPATCH();
+  }
+  DO_CLASS: {
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* class_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    auto new_class = _gc.alloc<ObjClass>(class_name);
+    stack_push(new_class);
+    DISPATCH();
+  }
+  DO_DEFINE_METHOD: {
+    // pop ObjClosure from stack
+    lox::Value val = stack_pop();
+    auto closure_ptr = as_objptr<ObjClosure>(
+        val, "internal error: expected ObjClosure on stack for DEFINE_METHOD");
+    ObjString* method_name_str = closure_ptr->function->name;
+    // The class should now be at the top of the stack
+    lox::Value class_val = stack_peek();
+    auto class_ptr = as_objptr<ObjClass>(
+        class_val,
+        "internal error: expected ObjClass on stack for DEFINE_METHOD");
+    class_ptr->methods[method_name_str] = closure_ptr;
+    DISPATCH();
+  }
+  DO_GET_GLOBAL: {
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    // Now that we have the name of the variable, we can look it up in our
+    // map
+    auto it = globals.map.find(var_name);
+    if (it == globals.map.end()) {
+      error("undefined variable '" + var_name->value + "'");
     }
-    DO_MULTIPLY: {
-      handle_binary_op([](double a, double b) { return a * b; });
-      DISPATCH();
-    }
-    DO_DIVIDE: {
-      handle_binary_op([](double a, double b) { return a / b; });
-      DISPATCH();
-    }
-    DO_EQUAL: {
-      lox::Value b = stack_pop();
-      lox::Value a = stack_pop();
-      stack_push(lox::is_equal(a, b));
-      DISPATCH();
-    }
-    DO_GREATER: {
-      handle_binary_op([](double a, double b) { return a > b; });
-      DISPATCH();
-    }
-    DO_LESS: {
-      handle_binary_op([](double a, double b) { return a < b; });
-      DISPATCH();
-    }
-    DO_PRINT: {
-      lox::Value value = stack_pop();
-      // operator<< on Value is already defined to print the correct
-      // representation
-      std::cout << value << "\n";
-      DISPATCH();
-    }
-    DO_POP: {
-      stack_pop();
-      DISPATCH();
-    }
-    DO_DEFINE_GLOBAL: {
-      // The parser will have pushed the variable name (as a string) onto
-      // the chunk's constant table. Separately, in the bytecode, it will
-      // have a DEFINE_GLOBAL instruction followed by the constant index.
-      // When we get here we have already seen the DEFINE_GLOBAL
-      // instruction, so we need to read the variable name.
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      // After this, the parser will have emitted bytecode that pushes the
-      // value of the variable onto the stack. So we need to pop that value.
-      // (Or, following the book, just peek it now and pop it later, after
-      // we've stored it.)
+    stack_push(it->second);
+    DISPATCH();
+  }
+  DO_SET_GLOBAL: {
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    auto it = globals.map.find(var_name);
+    if (it == globals.map.end()) {
+      error("undefined variable '" + var_name->value + "'");
+    } else {
+      // Update the value in the globals table.
+      // Peek not pop because assignment expressions return the assigned
+      // value and it might be used again later!
       lox::Value var_value = stack_peek();
-      // Then we can define the global variable by adding it to our map.
-      // NOTE: operator[] will create a new entry if the key doesn't exist
-      // yet. It returns a reference to the value, which can then be
-      // assigned to. So this doesn't desugar to something like setindex! in
-      // Julia, it is just a composition of operator[] and assignment.
-      //
-      // We have to access the actual underlying string value here because we
-      // are creating a new key in the map (which takes std::string as
-      // keys)
-      globals.map[var_name->value] = var_value;
-      stack_pop(); // now pop the value
-      DISPATCH();
+      it->second = var_value;
     }
-    DO_CLASS: {
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* class_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      auto new_class = _gc.alloc<ObjClass>(class_name);
-      stack_push(new_class);
-      DISPATCH();
-    }
-    DO_DEFINE_METHOD: {
-      // pop ObjClosure from stack
-      lox::Value val = stack_pop();
-      auto closure_ptr = as_objptr<ObjClosure>(
-          val,
-          "internal error: expected ObjClosure on stack for DEFINE_METHOD");
-      ObjString* method_name_str = closure_ptr->function->name;
-      // The class should now be at the top of the stack
-      lox::Value class_val = stack_peek();
-      auto class_ptr = as_objptr<ObjClass>(
-          class_val,
-          "internal error: expected ObjClass on stack for DEFINE_METHOD");
-      class_ptr->methods[method_name_str] = closure_ptr;
-      DISPATCH();
-    }
-    DO_GET_GLOBAL: {
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      // Now that we have the name of the variable, we can look it up in our
-      // map
-      auto it = globals.map.find(var_name);
-      if (it == globals.map.end()) {
-        error("undefined variable '" + var_name->value + "'");
-      }
-      stack_push(it->second);
-      DISPATCH();
-    }
-    DO_SET_GLOBAL: {
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      auto it = globals.map.find(var_name);
-      if (it == globals.map.end()) {
-        error("undefined variable '" + var_name->value + "'");
-      } else {
-        // Update the value in the globals table.
-        // Peek not pop because assignment expressions return the assigned
-        // value and it might be used again later!
-        lox::Value var_value = stack_peek();
-        it->second = var_value;
-      }
-      DISPATCH();
-    }
-    DO_GET_PROPERTY: {
-      // the instance is at the top of the stack
-      lox::Value instance_value = stack_peek();
-      auto instanceptr = as_objptr<ObjInstance>(
-          instance_value, "cannot access property of non-instance");
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      // Check first if it's a field on the instance
-      auto it = instanceptr->fields.find(property_name);
-      if (it != instanceptr->fields.end()) {
-        // It was a field
-        stack_replace_top(it->second);
-      } else {
-        // Maybe it's a method
-        const auto& classmethods = instanceptr->klass->methods;
-        auto method_itr = classmethods.find(property_name);
-        if (method_itr != classmethods.end()) {
-          ObjClosure* method_closure = method_itr->second;
-          ObjBoundMethod* bound_method =
-              _gc.alloc<ObjBoundMethod>(instanceptr, method_closure);
-          stack_replace_top(bound_method);
-        } else {
-          // OK, it really wasn't found
-          throw std::runtime_error("undefined property '" +
-                                   property_name->value + "'");
-        }
-      }
-      DISPATCH();
-    }
-    DO_SET_PROPERTY: {
-      // the value to set is at the top of the stack
-      lox::Value value_to_set = stack_peek();
-      // the instance is just below it
-      lox::Value instance_value = stack[stack.size() - 2];
-      auto instanceptr = as_objptr<ObjInstance>(
-          instance_value, "cannot access property of non-instance");
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      // NOTE: operator[] does not allow for heterogeneous lookup, so we need
-      // to actually access the underlying std::string
-      instanceptr->fields[property_name] = value_to_set;
-      // Pop the instance and value, but leave the value on the stack since
-      // (a.x = b) evaluates to b
-      stack_pop();
-      stack_replace_top(value_to_set);
-      DISPATCH();
-    }
-    DO_INVOKE: {
-      // top of the stack are the arguments, then the instance
-      uint8_t nargs = *local_ip++;
-      lox::Value instance_value = stack[stack.size() - 1 - nargs];
-      auto instanceptr = as_objptr<ObjInstance>(
-          instance_value, "cannot invoke method on non-instance");
-      uint8_t constant_index = *local_ip++;
-      lox::Value c = chunkptr->constant_at(constant_index);
-      ObjString* method_name = static_cast<ObjString*>(std::get<Obj*>(c));
-      // Now we need to check if it is indeed a method
+    DISPATCH();
+  }
+  DO_GET_PROPERTY: {
+    // the instance is at the top of the stack
+    lox::Value instance_value = stack_peek();
+    auto instanceptr = as_objptr<ObjInstance>(
+        instance_value, "cannot access property of non-instance");
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    // Check first if it's a field on the instance
+    auto it = instanceptr->fields.find(property_name);
+    if (it != instanceptr->fields.end()) {
+      // It was a field
+      stack_replace_top(it->second);
+    } else {
+      // Maybe it's a method
       const auto& classmethods = instanceptr->klass->methods;
-      auto method_itr = classmethods.find(method_name);
+      auto method_itr = classmethods.find(property_name);
       if (method_itr != classmethods.end()) {
-        // Invoke the method on this instance. This is really easy because
-        // everything is already in the right place!
-        call(method_itr->second, nargs, local_ip);
-        update_chunk_and_ip();
+        ObjClosure* method_closure = method_itr->second;
+        ObjBoundMethod* bound_method =
+            _gc.alloc<ObjBoundMethod>(instanceptr, method_closure);
+        stack_replace_top(bound_method);
       } else {
-        // If not, fall back to retrieving a field and then calling it
-        auto it = instanceptr->fields.find(method_name);
-        if (it != instanceptr->fields.end()) {
-          // Replace the instance with whatever the property was
-          stack[stack.size() - 1 - nargs] = it->second;
-          if (dispatch_call(it->second, nargs, local_ip)) {
-            update_chunk_and_ip();
-          }
-        } else {
-          throw std::runtime_error("undefined property '" + method_name->value +
-                                   "'");
+        // OK, it really wasn't found
+        throw std::runtime_error("undefined property '" + property_name->value +
+                                 "'");
+      }
+    }
+    DISPATCH();
+  }
+  DO_SET_PROPERTY: {
+    // the value to set is at the top of the stack
+    lox::Value value_to_set = stack_peek();
+    // the instance is just below it
+    lox::Value instance_value = stack[stack.size() - 2];
+    auto instanceptr = as_objptr<ObjInstance>(
+        instance_value, "cannot access property of non-instance");
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    // NOTE: operator[] does not allow for heterogeneous lookup, so we need
+    // to actually access the underlying std::string
+    instanceptr->fields[property_name] = value_to_set;
+    // Pop the instance and value, but leave the value on the stack since
+    // (a.x = b) evaluates to b
+    stack_pop();
+    stack_replace_top(value_to_set);
+    DISPATCH();
+  }
+  DO_INVOKE: {
+    // top of the stack are the arguments, then the instance
+    uint8_t nargs = *local_ip++;
+    lox::Value instance_value = stack[stack.size() - 1 - nargs];
+    auto instanceptr = as_objptr<ObjInstance>(
+        instance_value, "cannot invoke method on non-instance");
+    uint8_t constant_index = *local_ip++;
+    lox::Value c = chunkptr->constant_at(constant_index);
+    ObjString* method_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    // Now we need to check if it is indeed a method
+    const auto& classmethods = instanceptr->klass->methods;
+    auto method_itr = classmethods.find(method_name);
+    if (method_itr != classmethods.end()) {
+      // Invoke the method on this instance. This is really easy because
+      // everything is already in the right place!
+      call(method_itr->second, nargs, local_ip);
+      update_chunk_and_ip();
+    } else {
+      // If not, fall back to retrieving a field and then calling it
+      auto it = instanceptr->fields.find(method_name);
+      if (it != instanceptr->fields.end()) {
+        // Replace the instance with whatever the property was
+        stack[stack.size() - 1 - nargs] = it->second;
+        if (dispatch_call(it->second, nargs, local_ip)) {
+          update_chunk_and_ip();
         }
-      }
-      DISPATCH();
-    }
-    DO_SET_LOCAL: {
-      uint8_t local_index = *local_ip++;
-      if (static_cast<size_t>(local_index) > stack.size()) {
-        std::cerr << "stack_size=" << stack.size()
-                  << ", local_index=" << +local_index << "\n";
-        error("SET_LOCAL: invalid local variable index");
-      }
-      set_local_variable(local_index, stack_peek());
-      DISPATCH();
-    }
-    DO_GET_LOCAL: {
-      uint8_t local_index = *local_ip++;
-      if (static_cast<size_t>(local_index) > stack.size()) {
-        std::cerr << "stack_size=" << stack.size()
-                  << ", local_index=" << +local_index << "\n";
-        error("GET_LOCAL: invalid local variable index");
-      }
-      lox::Value local_value = get_local_variable(local_index);
-      stack_push(local_value);
-      DISPATCH();
-    }
-    DO_JUMP_IF_FALSE: {
-      // Don't pop the condition yet, because we might need to use it for
-      // logical shortcircuiting later.
-      lox::Value condition = stack_peek();
-      if (!lox::is_truthy(condition)) {
-        uint8_t high_byte = *local_ip++;
-        uint8_t low_byte = *local_ip++;
-        ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
-        local_ip += jump_offset;
       } else {
-        local_ip += 2; // skip the jump offset bytes
+        throw std::runtime_error("undefined property '" + method_name->value +
+                                 "'");
       }
-      DISPATCH();
     }
-    DO_JUMP: {
+    DISPATCH();
+  }
+  DO_SET_LOCAL: {
+    uint8_t local_index = *local_ip++;
+    if (static_cast<size_t>(local_index) > stack.size()) {
+      std::cerr << "stack_size=" << stack.size()
+                << ", local_index=" << +local_index << "\n";
+      error("SET_LOCAL: invalid local variable index");
+    }
+    set_local_variable(local_index, stack_peek());
+    DISPATCH();
+  }
+  DO_GET_LOCAL: {
+    uint8_t local_index = *local_ip++;
+    if (static_cast<size_t>(local_index) > stack.size()) {
+      std::cerr << "stack_size=" << stack.size()
+                << ", local_index=" << +local_index << "\n";
+      error("GET_LOCAL: invalid local variable index");
+    }
+    lox::Value local_value = get_local_variable(local_index);
+    stack_push(local_value);
+    DISPATCH();
+  }
+  DO_JUMP_IF_FALSE: {
+    // Don't pop the condition yet, because we might need to use it for
+    // logical shortcircuiting later.
+    lox::Value condition = stack_peek();
+    if (!lox::is_truthy(condition)) {
       uint8_t high_byte = *local_ip++;
       uint8_t low_byte = *local_ip++;
       ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
       local_ip += jump_offset;
-      DISPATCH();
+    } else {
+      local_ip += 2; // skip the jump offset bytes
     }
-    DO_CALL: {
-      // This is the number of arguments pushed to the stack.
-      uint8_t nargs = *local_ip++;
-      // The function pointer should have been pushed to the stack before
-      // the arguments.
-      auto maybe_objptr = stack[stack.size() - 1 - nargs];
-      if (dispatch_call(maybe_objptr, nargs, local_ip)) {
-        update_chunk_and_ip();
-      }
-      DISPATCH();
+    DISPATCH();
+  }
+  DO_JUMP: {
+    uint8_t high_byte = *local_ip++;
+    uint8_t low_byte = *local_ip++;
+    ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
+    local_ip += jump_offset;
+    DISPATCH();
+  }
+  DO_CALL: {
+    // This is the number of arguments pushed to the stack.
+    uint8_t nargs = *local_ip++;
+    // The function pointer should have been pushed to the stack before
+    // the arguments.
+    auto maybe_objptr = stack[stack.size() - 1 - nargs];
+    if (dispatch_call(maybe_objptr, nargs, local_ip)) {
+      update_chunk_and_ip();
     }
-    DO_RETURN: {
-      lox::Value retval = stack_pop();
-      close_upvalues_after(&stack[current_frame().stack_start]);
+    DISPATCH();
+  }
+  DO_RETURN: {
+    lox::Value retval = stack_pop();
+    close_upvalues_after(&stack[current_frame().stack_start]);
 
-      if (call_frames.size() == 1) {
-        // We are about to return from the top level, so we're done executing
-        // the entire programme. Pop the top level function off the stack
-        // and finish.
-        stack_pop();
-        return InterpretResult::OK;
-      } else {
-        // Reset the VM's state to where it was before it entered the current
-        // call.
-        stack.resize(current_frame().stack_start);
-        stack_push(retval);
-        call_frames.pop_back();
-        update_chunk_and_ip();
-      }
-      DISPATCH();
+    if (call_frames.size() == 1) {
+      // We are about to return from the top level, so we're done executing
+      // the entire programme. Pop the top level function off the stack
+      // and finish.
+      stack_pop();
+      return InterpretResult::OK;
+    } else {
+      // Reset the VM's state to where it was before it entered the current
+      // call.
+      stack.resize(current_frame().stack_start);
+      stack_push(retval);
+      call_frames.pop_back();
+      update_chunk_and_ip();
     }
+    DISPATCH();
+  }
+  DO_INHERIT: {
+    // The top of the stack should be the subclass, and then the superclass is
+    // just below it
+    lox::Value subclass_value = stack_pop();
+    auto subclass_ptr =
+        as_objptr<ObjClass>(subclass_value, "cannot have non-class inherit");
+    lox::Value superclass_value = stack_pop();
+    auto superclass_ptr =
+        as_objptr<ObjClass>(superclass_value, "cannot inherit from non-class");
+    // Copy methods from superclass to subclass. At this point, the subclass
+    // has no methods so it's fine to just copy the entire map.
+    subclass_ptr->methods = superclass_ptr->methods;
+    DISPATCH();
+  }
+  DO_GET_SUPER: {
+    uint8_t constant_index = *local_ip++;
+    lox::Value method_name_val = chunkptr->constant_at(constant_index);
+    ObjString* method_name =
+        static_cast<ObjString*>(std::get<Obj*>(method_name_val));
+    // We need to create an ObjBoundMethod, but specifically, it's the
+    // ObjClosure from the superclass, coupled with the *current* instance we're
+    // using. The superclass is at the top of the stack right now.
+    lox::Value superclass_value = stack_pop();
+    auto superclass_ptr = as_objptr<ObjClass>(
+        superclass_value, "cannot get superclass method from non-class");
+    const auto& superclass_methods = superclass_ptr->methods;
+    auto method_itr = superclass_methods.find(method_name);
+    if (method_itr == superclass_methods.end()) {
+      throw std::runtime_error("undefined method '" + method_name->value +
+                               "' in superclass");
     }
+    ObjClosure* method_closure = method_itr->second;
+    // The instance is now at the top of the stack.
+    lox::Value instance_value = stack_peek();
+    auto instance_ptr = as_objptr<ObjInstance>(
+        instance_value, "cannot get superclass method for non-instance");
+    ObjBoundMethod* bound_method =
+        _gc.alloc<ObjBoundMethod>(instance_ptr, method_closure);
+    stack_replace_top(bound_method);
+    DISPATCH();
+  }
 
     if (local_ip == chunk_end) {
       // Successfully read all bytes.

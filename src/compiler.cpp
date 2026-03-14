@@ -428,11 +428,38 @@ void Parser::class_declaration() {
   emit(lox::OpCode::CLASS);
   emit(name_constant_index);
 
-  push_current_class();
-
   // This call will emit code to read from the top of the stack and create
   // either a local or global variable with the class.
   define_variable(class_name);
+
+  push_current_class();
+
+  // Check whether it has a superclass
+  if (consume_if(TokenType::LESS)) {
+    consume_or_error(TokenType::IDENTIFIER, "expected superclass name");
+    std::string_view superclass_name = previous.lexeme;
+    if (superclass_name == class_name) {
+      error("a class cannot inherit from itself", previous.line);
+    }
+    // Push the superclass to the stack -- note that by now it is mandatory that
+    // the superclass has been defined in the same scope.
+    named_variable(superclass_name, false);
+    // then push the subclass itself. Because we defined it above, we can just
+    // use named_variable.
+    named_variable(class_name, false);
+    // The INHERIT instruction will handle both of them.
+    emit(lox::OpCode::INHERIT);
+
+    mark_current_class_as_having_superclass();
+
+    // Declare `super` as a local variable in the current scope; then push it
+    // to the stack. (Arguably, this is a bit inefficient: we did it above
+    // already, and we could just make INHERIT *not* pop it off the stack. But
+    // it's a bit clearer IMO.)
+    compiler->begin_scope();
+    define_variable("super");
+    named_variable(superclass_name, false);
+  }
 
   // We're now going to force the class to be placed on top of the stack. This
   // is so that when we parse the methods, we can have the class be immediately
@@ -452,6 +479,9 @@ void Parser::class_declaration() {
   // any more.
   emit(lox::OpCode::POP);
 
+  if (current_class_has_superclass()) {
+    end_scope();
+  }
   pop_current_class();
 }
 
@@ -772,6 +802,23 @@ void Parser::this_(bool _) {
   // treat 'this' like a local variable that happens to be at index 0 (which the
   // constructor of Compiler does for us).
   variable(false);
+}
+
+void Parser::super_(bool _) {
+  if (!is_in_class() || !current_class_has_superclass()) {
+    error("cannot use 'super' outside of a subclass", previous.line);
+    return;
+  }
+  consume_or_error(TokenType::DOT, "expected '.' after 'super'");
+  consume_or_error(TokenType::IDENTIFIER, "expected superclass method name");
+  std::string_view method_name = previous.lexeme;
+  uint8_t name_constant_index = make_constant(gc.get_string_ptr(method_name));
+  // push instance to stack
+  named_variable("this", false);
+  // push superclass to stack
+  named_variable("super", false);
+  emit(lox::OpCode::GET_SUPER);
+  emit(name_constant_index);
 }
 
 void Parser::literal(bool _) {
