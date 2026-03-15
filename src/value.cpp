@@ -1,16 +1,7 @@
 #include "value.hpp"
 #include "gc.hpp"
+#include "value_def.hpp"
 #include <ostream>
-
-namespace {
-struct LoxValuePrinter {
-  std::ostream& os;
-  void operator()(std::monostate) { os << "nil"; }
-  void operator()(bool b) { os << (b ? "true" : "false"); }
-  void operator()(double d) { os << d; }
-  void operator()(lox::Obj* s) { os << s->to_repr(); }
-};
-} // namespace
 
 namespace lox {
 
@@ -19,7 +10,17 @@ bool operator==(const Upvalue& a, const Upvalue& b) {
 }
 
 std::ostream& operator<<(std::ostream& os, const Value& value) {
-  std::visit(LoxValuePrinter{os}, value);
+  if (is_nil(value)) {
+    os << "nil";
+  } else if (is_bool(value)) {
+    os << (as_bool(value) ? "true" : "false");
+  } else if (is_double(value)) {
+    os << as_double(value);
+  } else if (is_obj(value)) {
+    os << as_obj(value)->to_repr();
+  } else {
+    throw std::runtime_error("loxc: operator<<: unknown value type");
+  }
   return os;
 }
 
@@ -32,14 +33,14 @@ Value ObjNativeFunction::call(uint8_t arg_count, const Value* args) {
 }
 
 bool is_truthy(const Value& value) {
-  if (std::holds_alternative<std::monostate>(value)) {
+  if (is_nil(value)) {
     return false;
-  } else if (std::holds_alternative<bool>(value)) {
-    return std::get<bool>(value);
-  } else if (std::holds_alternative<double>(value)) {
+  } else if (is_bool(value)) {
+    return as_bool(value);
+  } else if (is_double(value)) {
     // all Lox numbers are truthy (even 0)
     return true;
-  } else if (std::holds_alternative<Obj*>(value)) {
+  } else if (is_obj(value)) {
     // everything else is also truthy (even empty string)
     return true;
   } else {
@@ -48,33 +49,26 @@ bool is_truthy(const Value& value) {
 }
 
 bool is_equal(const Value& a, const Value& b) {
-  // Check if `a` and `b` have the same variant index (i.e. their type is the
-  // same)
-  if (a.index() != b.index()) {
-    return false;
-  }
-
-  if (std::holds_alternative<std::monostate>(a)) {
-    return true;
-  } else if (std::holds_alternative<bool>(a)) {
-    return std::get<bool>(a) == std::get<bool>(b);
-  } else if (std::holds_alternative<double>(a)) {
-    return std::get<double>(a) == std::get<double>(b);
-  } else if (std::holds_alternative<Obj*>(a)) {
+  if (is_nil(a)) {
+    return is_nil(b);
+  } else if (is_bool(a)) {
+    return is_bool(b) && (as_bool(a) == as_bool(b));
+  } else if (is_double(a)) {
+    return is_double(b) && (as_double(a) == as_double(b));
+  } else if (is_obj(a)) {
     // Because all strings are interned, pointer equality is sufficient
-    return a == b;
+    return is_obj(b) && (as_obj(a) == as_obj(b));
   } else {
     throw std::runtime_error("unreachable in is_equal: unknown value type");
   }
 }
 
 Value add(const Value& a, const Value& b, GC& gc) {
-  if (std::holds_alternative<double>(a) && std::holds_alternative<double>(b)) {
-    return std::get<double>(a) + std::get<double>(b);
-  } else if (std::holds_alternative<Obj*>(a) &&
-             std::holds_alternative<Obj*>(b)) {
-    auto aptr = std::get<Obj*>(a);
-    auto bptr = std::get<Obj*>(b);
+  if (is_double(a) && is_double(b)) {
+    return as_double(a) + as_double(b);
+  } else if (is_obj(a) && is_obj(b)) {
+    auto aptr = as_obj(a);
+    auto bptr = as_obj(b);
     if (aptr->type != ObjType::STRING || bptr->type != ObjType::STRING) {
       throw std::runtime_error(
           "operands to `+` must be two numbers or two strings");

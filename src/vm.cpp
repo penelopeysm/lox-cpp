@@ -1,6 +1,7 @@
 #include "vm.hpp"
 #include "chunk.hpp"
 #include "gc.hpp"
+#include "value_def.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -31,10 +32,10 @@ lox::Value clock_native(size_t, const lox::Value*) {
   return static_cast<double>(std::clock()) / CLOCKS_PER_SEC;
 }
 lox::Value sleep_native(size_t, const lox::Value* args) {
-  if (!std::holds_alternative<double>(args[0])) {
+  if (!is_double(args[0])) {
     throw std::runtime_error("sleep expects one numeric argument");
   }
-  double seconds = std::get<double>(args[0]);
+  double seconds = as_double(args[0]);
   if (seconds < 0) {
     throw std::runtime_error("sleep duration must be non-negative");
   }
@@ -286,7 +287,7 @@ InterpretResult VM::run() {
     // We know that `c` has to be a ObjFunction* here, so we can directly
     // use static_cast instead of checking the ObjType inside (even if it's
     // a bit dangerous)
-    auto c_fn = static_cast<ObjFunction*>(std::get<Obj*>(c));
+    auto c_fn = as_objptr_unsafe<ObjFunction>(c);
     stack_push(c_fn); // avoid GCing the function while the closure is being
                       // created
     auto c_clos = _gc.alloc<ObjClosure>(c_fn);
@@ -364,8 +365,8 @@ InterpretResult VM::run() {
   }
   DO_NEGATE: {
     lox::Value value = stack_pop();
-    if (std::holds_alternative<double>(value)) {
-      stack_push(-std::get<double>(value));
+    if (is_double(value)) {
+      stack_push(-as_double(value));
     } else {
       error("operand must be a number");
     }
@@ -379,11 +380,10 @@ InterpretResult VM::run() {
   DO_ADD: {
     lox::Value b = stack_pop();
     lox::Value a = stack_peek();
-    if (std::holds_alternative<double>(a) &&
-        std::holds_alternative<double>(b)) {
+    if (is_double(a) && is_double(b)) {
       // Attempts at perf optimisations using Instruments.app... don't think
       // it made much of a difference though.
-      stack_replace_top(std::get<double>(a) + std::get<double>(b));
+      stack_replace_top(as_double(a) + as_double(b));
     } else {
       stack_pop(); // pop a
       stack_push(lox::add(a, b, _gc));
@@ -435,7 +435,7 @@ InterpretResult VM::run() {
     // instruction, so we need to read the variable name.
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* var_name = as_objptr_unsafe<ObjString>(c);
     // After this, the parser will have emitted bytecode that pushes the
     // value of the variable onto the stack. So we need to pop that value.
     // (Or, following the book, just peek it now and pop it later, after
@@ -457,7 +457,7 @@ InterpretResult VM::run() {
   DO_CLASS: {
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* class_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* class_name = as_objptr_unsafe<ObjString>(c);
     auto new_class = _gc.alloc<ObjClass>(class_name);
     stack_push(new_class);
     DISPATCH();
@@ -479,7 +479,7 @@ InterpretResult VM::run() {
   DO_GET_GLOBAL: {
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* var_name = as_objptr_unsafe<ObjString>(c);
     // Now that we have the name of the variable, we can look it up in our
     // map
     auto it = globals.map.find(var_name);
@@ -492,7 +492,7 @@ InterpretResult VM::run() {
   DO_SET_GLOBAL: {
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* var_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* var_name = as_objptr_unsafe<ObjString>(c);
     auto it = globals.map.find(var_name);
     if (it == globals.map.end()) {
       error("undefined variable '" + var_name->value + "'");
@@ -512,7 +512,7 @@ InterpretResult VM::run() {
         instance_value, "cannot access property of non-instance");
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* property_name = as_objptr_unsafe<ObjString>(c);
     // Check first if it's a field on the instance
     auto it = instanceptr->fields.find(property_name);
     if (it != instanceptr->fields.end()) {
@@ -544,7 +544,7 @@ InterpretResult VM::run() {
         instance_value, "cannot access property of non-instance");
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* property_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* property_name = as_objptr_unsafe<ObjString>(c);
     // NOTE: operator[] does not allow for heterogeneous lookup, so we need
     // to actually access the underlying std::string
     instanceptr->fields[property_name] = value_to_set;
@@ -562,7 +562,7 @@ InterpretResult VM::run() {
         instance_value, "cannot invoke method on non-instance");
     uint8_t constant_index = *local_ip++;
     lox::Value c = chunkptr->constant_at(constant_index);
-    ObjString* method_name = static_cast<ObjString*>(std::get<Obj*>(c));
+    ObjString* method_name = as_objptr_unsafe<ObjString>(c);
     // Now we need to check if it is indeed a method
     const auto& classmethods = instanceptr->klass->methods;
     auto method_itr = classmethods.find(method_name);
@@ -677,8 +677,7 @@ InterpretResult VM::run() {
   DO_GET_SUPER: {
     uint8_t constant_index = *local_ip++;
     lox::Value method_name_val = chunkptr->constant_at(constant_index);
-    ObjString* method_name =
-        static_cast<ObjString*>(std::get<Obj*>(method_name_val));
+    ObjString* method_name = as_objptr_unsafe<ObjString>(method_name_val);
     // We need to create an ObjBoundMethod, but specifically, it's the
     // ObjClosure from the superclass, coupled with the *current* instance we're
     // using. The superclass is at the top of the stack right now.
@@ -710,8 +709,7 @@ InterpretResult VM::run() {
     uint8_t nargs = *local_ip++;
     uint8_t constant_index = *local_ip++;
     lox::Value method_name_val = chunkptr->constant_at(constant_index);
-    ObjString* method_name =
-        static_cast<ObjString*>(std::get<Obj*>(method_name_val));
+    ObjString* method_name = as_objptr_unsafe<ObjString>(method_name_val);
     // top of the stack is the superclass, which we use to get the method.
     lox::Value superclass_value = stack_pop();
     // TODO: We don't need to check this; by construction this should always be
@@ -756,10 +754,10 @@ InterpretResult VM::run() {
 
 bool VM::dispatch_call(lox::Value maybe_objptr, size_t nargs,
                        uint8_t* local_ip) {
-  if (!std::holds_alternative<Obj*>(maybe_objptr)) {
+  if (!is_obj(maybe_objptr)) {
     throw std::runtime_error("objptr was not a pointer to Obj");
   }
-  auto objptr = std::get<Obj*>(maybe_objptr);
+  auto objptr = as_obj(maybe_objptr);
   switch (objptr->type) {
   case ObjType::CLOSURE: {
     auto closptr = static_cast<ObjClosure*>(objptr);

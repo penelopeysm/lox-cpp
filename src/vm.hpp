@@ -4,6 +4,7 @@
 #include "gc.hpp"
 #include "stringmap.hpp"
 #include "value.hpp"
+#include "value_def.hpp"
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -116,11 +117,12 @@ private:
   // whether the call frame was changed. (This doesn't always happen! If it's a
   // native function, or a class constructor that isn't an initialiser, there's
   // no new call frame to jump into: the return value is just placed on the
-  // stack.) 
+  // stack.)
   // The reason why we need to know whether the call frame was changed is that
   // if it was, then we need to update the local variables like local_ip inside
   // the VM loop. If not, then we don't need to.
-  [[nodiscard]] bool dispatch_call(lox::Value callee, size_t arg_count, uint8_t* local_ip);
+  [[nodiscard]] bool dispatch_call(lox::Value callee, size_t arg_count,
+                                   uint8_t* local_ip);
   void call(ObjClosure* callee, size_t arg_count, uint8_t* local_ip);
 
   // Move the stack pointer back to the base
@@ -141,9 +143,8 @@ private:
   template <typename BinaryOp> VM& handle_binary_op(BinaryOp op) {
     lox::Value b = stack_pop();
     lox::Value a = stack_peek();
-    if (std::holds_alternative<double>(a) &&
-        std::holds_alternative<double>(b)) {
-      lox::Value result = op(std::get<double>(a), std::get<double>(b));
+    if (is_double(a) && is_double(b)) {
+      lox::Value result = op(as_double(a), as_double(b));
       stack_replace_top(result);
     } else {
       error("operands must be numbers");

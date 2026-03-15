@@ -2,6 +2,7 @@
 #include "chunk.hpp"
 #include "gc.hpp"
 #include "scanner.hpp"
+#include "value.hpp"
 
 #include <cstdint>
 #include <functional>

@@ -29,8 +29,8 @@ bool GC::should_gc() {
 }
 
 void GC::mark_as_grey(const lox::Value& value) {
-  if (std::holds_alternative<lox::Obj*>(value)) {
-    lox::Obj* obj = std::get<lox::Obj*>(value);
+  if (is_obj(value)) {
+    lox::Obj* obj = as_obj(value);
     mark_as_grey(obj);
   }
 }

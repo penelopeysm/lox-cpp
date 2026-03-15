@@ -194,14 +194,20 @@ public:
   static constexpr std::string_view static_type_name = "ObjBoundMethod";
 };
 
+// Convert a `Value` to a specific ObjFoo* type
 template <typename T> T* as_objptr(Value value, const std::string& error_msg) {
-  if (!std::holds_alternative<Obj*>(value)) {
+  if (!is_obj(value)) {
     throw std::runtime_error(error_msg);
   }
-  auto objptr = std::get<Obj*>(value);
+  auto objptr = as_obj(value);
   if (objptr->type != T::static_type) {
     throw std::runtime_error(error_msg);
   }
+  return static_cast<T*>(objptr);
+}
+// Same as above but no runtime checks
+template <typename T> T* as_objptr_unsafe(Value value) {
+  auto objptr = as_obj(value);
   return static_cast<T*>(objptr);
 }
 
