@@ -25,17 +25,15 @@ ptrdiff_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
   int16_t jump_offset = (static_cast<int16_t>(high_byte) << 8) | low_byte;
   return static_cast<ptrdiff_t>(jump_offset);
 }
-constexpr size_t MAX_CALL_FRAMES = 64;
-constexpr size_t MAX_STACK_SIZE = 64 * UINT8_MAX;
 
 lox::Value clock_native(size_t, const lox::Value*) {
-  return static_cast<double>(std::clock()) / CLOCKS_PER_SEC;
+  return lox::from_double(static_cast<double>(std::clock()) / CLOCKS_PER_SEC);
 }
 lox::Value sleep_native(size_t, const lox::Value* args) {
-  if (!is_double(args[0])) {
+  if (!lox::is_double(args[0])) {
     throw std::runtime_error("sleep expects one numeric argument");
   }
-  double seconds = as_double(args[0]);
+  double seconds = lox::as_double(args[0]);
   if (seconds < 0) {
     throw std::runtime_error("sleep duration must be non-negative");
   }
@@ -91,10 +89,10 @@ lox::InterpretResult VM::invoke_toplevel() {
   // Earlier we reserved stack slot zero for the VM. We have to mirror that
   // here. We push top_level_fn to the stack first so that it doesn't get
   // cleaned up during the call to _gc.alloc.
-  stack_push(top_level_fn);
+  stack_push(from_obj(top_level_fn));
   ObjClosure* top_level_closure = _gc.alloc<ObjClosure>(top_level_fn);
   stack_pop();
-  stack_push(top_level_closure);
+  stack_push(from_obj(top_level_closure));
   call(top_level_closure, 0, nullptr);
   auto result = run();
 #ifdef LOX_GC_DEBUG
@@ -108,19 +106,18 @@ VM& VM::stack_reset() {
   return *this;
 }
 
-VM& VM::stack_push(const lox::Value& value) {
-  if (stack.size() >= MAX_STACK_SIZE) {
-    error("stack overflow");
-  }
-  stack.push_back(value);
-  return *this;
-}
-
 lox::Value* VM::stack_top_address() {
   if (stack.empty()) {
     error("stack_top_address: stack underflow");
   }
   return &stack.back();
+}
+
+void VM::stack_push(const lox::Value& value) {
+  if (stack.size() >= MAX_STACK_SIZE) {
+    error("stack overflow");
+  }
+  stack.push_back(value);
 }
 
 lox::Value VM::stack_pop() {
@@ -232,7 +229,7 @@ VM& VM::define_native(
     const std::string& name, size_t arity,
     std::function<lox::Value(size_t, const lox::Value*)> function) {
   auto native_fn = _gc.alloc<ObjNativeFunction>(name, arity, function);
-  globals.map[name] = native_fn;
+  globals.map[name] = from_obj(native_fn);
   return *this;
 }
 
@@ -288,13 +285,13 @@ InterpretResult VM::run() {
     // use static_cast instead of checking the ObjType inside (even if it's
     // a bit dangerous)
     auto c_fn = as_objptr_unsafe<ObjFunction>(c);
-    stack_push(c_fn); // avoid GCing the function while the closure is being
-                      // created
+    // avoid GCing the function while the closure is being created
+    stack_push(from_obj(c_fn));
     auto c_clos = _gc.alloc<ObjClosure>(c_fn);
     stack_pop();
     // we'll push the closure to the stack first even though it's not
     // complete, to avoid it being GC'd while we're making the upvalues.
-    stack_push(c_clos);
+    stack_push(from_obj(c_clos));
     for (size_t i = 0; i < c_fn->upvalues.size(); ++i) {
       uint8_t is_local = *local_ip++;
       uint8_t index = *local_ip++;
@@ -366,15 +363,16 @@ InterpretResult VM::run() {
   DO_NEGATE: {
     lox::Value value = stack_pop();
     if (is_double(value)) {
-      stack_push(-as_double(value));
+      stack_push(from_double(-as_double(value)));
     } else {
       error("operand must be a number");
     }
     DISPATCH();
   }
   DO_NOT: {
-    stack_modify_top(
-        [](const lox::Value& value) { return !(lox::is_truthy(value)); });
+    stack_modify_top([](const lox::Value& value) {
+      return from_bool(!(lox::is_truthy(value)));
+    });
     DISPATCH();
   }
   DO_ADD: {
@@ -383,37 +381,41 @@ InterpretResult VM::run() {
     if (is_double(a) && is_double(b)) {
       // Attempts at perf optimisations using Instruments.app... don't think
       // it made much of a difference though.
-      stack_replace_top(as_double(a) + as_double(b));
+      stack_replace_top(from_double(as_double(a) + as_double(b)));
     } else {
+      // it's a string
       stack_pop(); // pop a
       stack_push(lox::add(a, b, _gc));
     }
     DISPATCH();
   }
   DO_SUBTRACT: {
-    handle_binary_op([](double a, double b) { return a - b; });
+    handle_binary_op([](double a, double b) { return a - b; },
+                     lox::from_double);
     DISPATCH();
   }
   DO_MULTIPLY: {
-    handle_binary_op([](double a, double b) { return a * b; });
+    handle_binary_op([](double a, double b) { return a * b; },
+                     lox::from_double);
     DISPATCH();
   }
   DO_DIVIDE: {
-    handle_binary_op([](double a, double b) { return a / b; });
+    handle_binary_op([](double a, double b) { return a / b; },
+                     lox::from_double);
     DISPATCH();
   }
   DO_EQUAL: {
     lox::Value b = stack_pop();
     lox::Value a = stack_pop();
-    stack_push(lox::is_equal(a, b));
+    stack_push(from_bool(lox::is_equal(a, b)));
     DISPATCH();
   }
   DO_GREATER: {
-    handle_binary_op([](double a, double b) { return a > b; });
+    handle_binary_op([](double a, double b) { return a > b; }, lox::from_bool);
     DISPATCH();
   }
   DO_LESS: {
-    handle_binary_op([](double a, double b) { return a < b; });
+    handle_binary_op([](double a, double b) { return a < b; }, lox::from_bool);
     DISPATCH();
   }
   DO_PRINT: {
@@ -459,7 +461,7 @@ InterpretResult VM::run() {
     lox::Value c = chunkptr->constant_at(constant_index);
     ObjString* class_name = as_objptr_unsafe<ObjString>(c);
     auto new_class = _gc.alloc<ObjClass>(class_name);
-    stack_push(new_class);
+    stack_push(from_obj(new_class));
     DISPATCH();
   }
   DO_DEFINE_METHOD: {
@@ -526,7 +528,7 @@ InterpretResult VM::run() {
         ObjClosure* method_closure = method_itr->second;
         ObjBoundMethod* bound_method =
             _gc.alloc<ObjBoundMethod>(instanceptr, method_closure);
-        stack_replace_top(bound_method);
+        stack_replace_top(from_obj(bound_method));
       } else {
         // OK, it really wasn't found
         throw std::runtime_error("undefined property '" + property_name->value +
@@ -701,7 +703,7 @@ InterpretResult VM::run() {
         instance_value, "cannot get superclass method for non-instance");
     ObjBoundMethod* bound_method =
         _gc.alloc<ObjBoundMethod>(instance_ptr, method_closure);
-    stack_replace_top(bound_method);
+    stack_replace_top(from_obj(bound_method));
     DISPATCH();
   }
   DO_SUPER_INVOKE: {
@@ -780,7 +782,7 @@ bool VM::dispatch_call(lox::Value maybe_objptr, size_t nargs,
     // (so that it doesn't get GC'd). Recall that at this point the class
     // will have been pushed to the stack, followed by any function
     // arguments.
-    stack[stack.size() - 1 - nargs] = inst;
+    stack[stack.size() - 1 - nargs] = from_obj(inst);
     // Check for an initialiser.
     auto init_method_itr = classptr->methods.find(initString);
     if (init_method_itr != classptr->methods.end()) {
@@ -813,7 +815,7 @@ bool VM::dispatch_call(lox::Value maybe_objptr, size_t nargs,
   case ObjType::BOUND_METHOD: {
     auto bound_method_ptr = static_cast<ObjBoundMethod*>(objptr);
     // Stick `this` just before the arguments.
-    stack[stack.size() - 1 - nargs] = bound_method_ptr->receiver;
+    stack[stack.size() - 1 - nargs] = from_obj(bound_method_ptr->receiver);
     call(bound_method_ptr->method, nargs, local_ip);
     return true;
   }

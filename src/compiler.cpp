@@ -199,7 +199,7 @@ void Parser::function(bool is_class_method) {
   if (final_fnptr == nullptr) {
     return;
   } else {
-    size_t constant_index = make_constant(final_fnptr);
+    size_t constant_index = make_constant(from_obj(final_fnptr));
     emit(lox::OpCode::CLOSURE);
     emit(static_cast<uint8_t>(constant_index));
     for (const Upvalue& upvalue : final_fnptr->upvalues) {
@@ -425,7 +425,8 @@ void Parser::class_declaration() {
 
   // Store the class name in the constant table. The CLASS instruction will
   // construct the ObjClass at runtime and put it on the stack.
-  uint8_t name_constant_index = make_constant(gc.get_string_ptr(class_name));
+  uint8_t name_constant_index =
+      make_constant(from_obj(gc.get_string_ptr(class_name)));
   emit(lox::OpCode::CLASS);
   emit(name_constant_index);
 
@@ -509,7 +510,7 @@ void Parser::var_declaration() {
     expression();
   } else {
     // if no initializer provided, initialize to nil
-    emit_constant(std::monostate());
+    emit_constant(nil_val());
   }
   define_variable(var_name);
   consume_or_error(TokenType::SEMICOLON,
@@ -541,7 +542,7 @@ void Parser::define_global_variable(std::string_view name) {
   // NOTE: we use make_constant here (not emit_constant) because we don't want
   // to emit a CONSTANT instruction right now. If we did so then the VM would
   // interpret it as a string literal.
-  size_t constant_index = make_constant(var_name_str);
+  size_t constant_index = make_constant(from_obj(var_name_str));
   emit(lox::OpCode::DEFINE_GLOBAL);
   emit(static_cast<uint8_t>(constant_index));
 }
@@ -597,7 +598,7 @@ void Parser::named_variable(std::string_view lexeme, bool can_assign) {
       // might be defined later after we're done compiling the current
       // function.
       ObjString* var_name_str = gc.get_string_ptr(lexeme);
-      size_t constant_index = make_constant(var_name_str);
+      size_t constant_index = make_constant(from_obj(var_name_str));
       emit_variable_access(lox::OpCode::SET_GLOBAL, lox::OpCode::GET_GLOBAL,
                            can_assign, constant_index);
     }
@@ -653,7 +654,7 @@ void Parser::emit_auto_return_value() {
     emit(static_cast<uint8_t>(0));
   } else {
     // No return value; return nil
-    emit_constant(std::monostate());
+    emit_constant(nil_val());
   }
 }
 
@@ -787,7 +788,7 @@ void Parser::expression() { parse_precedence(Precedence::ASSIGNMENT); }
 
 void Parser::number(bool _) {
   double value = std::stod(std::string(previous.lexeme));
-  emit_constant(value);
+  emit_constant(from_double(value));
 }
 
 void Parser::this_(bool _) {
@@ -813,7 +814,8 @@ void Parser::super_(bool _) {
   consume_or_error(TokenType::DOT, "expected '.' after 'super'");
   consume_or_error(TokenType::IDENTIFIER, "expected superclass method name");
   std::string_view method_name = previous.lexeme;
-  uint8_t name_constant_index = make_constant(gc.get_string_ptr(method_name));
+  uint8_t name_constant_index =
+      make_constant(from_obj(gc.get_string_ptr(method_name)));
 
   // Check for method invocation.
   if (consume_if(TokenType::LEFT_PAREN)) {
@@ -848,13 +850,13 @@ void Parser::super_(bool _) {
 void Parser::literal(bool _) {
   switch (previous.type) {
   case TokenType::FALSE:
-    emit_constant(false);
+    emit_constant(from_bool(false));
     break;
   case TokenType::NIL:
-    emit_constant(std::monostate());
+    emit_constant(nil_val());
     break;
   case TokenType::TRUE:
-    emit_constant(true);
+    emit_constant(from_bool(true));
     break;
   default:
     throw std::runtime_error("unreachable: unknown literal type " +
@@ -864,7 +866,7 @@ void Parser::literal(bool _) {
 
 void Parser::string(bool _) {
   ObjString* obj_str = gc.get_string_ptr(previous.lexeme);
-  emit_constant(obj_str);
+  emit_constant(from_obj(obj_str));
 }
 
 void Parser::grouping(bool _) {
@@ -928,7 +930,8 @@ void Parser::dot(bool can_assign) {
   consume_or_error(TokenType::IDENTIFIER, "expected property name after '.'");
   std::string_view field_name = previous.lexeme;
   // push it to the constant table
-  uint8_t name_constant_index = make_constant(gc.get_string_ptr(field_name));
+  uint8_t name_constant_index =
+      make_constant(from_obj(gc.get_string_ptr(field_name)));
 
   // first check if it's an invocation, i.e. `a.b(...`
   // by the time we've reached here, we've consumed `a.b` already, so we can

@@ -127,10 +127,16 @@ private:
 
   // Move the stack pointer back to the base
   VM& stack_reset();
-  VM& stack_push(const lox::Value& value);
+
+  static constexpr size_t MAX_CALL_FRAMES = 64;
+  static constexpr size_t MAX_STACK_SIZE = 64 * UINT8_MAX;
+
   lox::Value stack_peek();
   lox::Value* stack_top_address();
   lox::Value stack_pop();
+
+  void stack_push(const lox::Value&);
+
   // Apply `op` to the top value on the stack, replacing it with the result
   lox::Value
   stack_modify_top(const std::function<lox::Value(const lox::Value&)>& op);
@@ -140,11 +146,11 @@ private:
   // This used to be
   // VM& handle_binary_op(const std::function<lox::Value(double, double)>& op);
   // but we now make it a template to avoid type erasure
-  template <typename BinaryOp> VM& handle_binary_op(BinaryOp op) {
+  template <typename BinaryOp, typename ConvFunc> VM& handle_binary_op(BinaryOp op, ConvFunc conv_func) {
     lox::Value b = stack_pop();
     lox::Value a = stack_peek();
     if (is_double(a) && is_double(b)) {
-      lox::Value result = op(as_double(a), as_double(b));
+      lox::Value result = conv_func(op(as_double(a), as_double(b)));
       stack_replace_top(result);
     } else {
       error("operands must be numbers");

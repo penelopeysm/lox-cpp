@@ -65,7 +65,7 @@ bool is_equal(const Value& a, const Value& b) {
 
 Value add(const Value& a, const Value& b, GC& gc) {
   if (is_double(a) && is_double(b)) {
-    return as_double(a) + as_double(b);
+    return from_double(as_double(a) + as_double(b));
   } else if (is_obj(a) && is_obj(b)) {
     auto aptr = as_obj(a);
     auto bptr = as_obj(b);
@@ -81,7 +81,7 @@ Value add(const Value& a, const Value& b, GC& gc) {
     // and concatenate them,
     std::string new_str = str1->value + str2->value;
     // so even if GC triggers here, we won't run into segfaults.
-    return gc.get_string_ptr(new_str);
+    return from_obj(gc.get_string_ptr(new_str));
   } else {
     throw std::runtime_error(
         "operands to `+` must be two numbers or two strings");

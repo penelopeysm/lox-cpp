@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 namespace lox {
@@ -105,7 +104,7 @@ public:
   Value* location;
   Value closed; // when the upvalue is closed, we store the value here
   ObjUpvalue(Value* location)
-      : Obj(static_type), location(location), closed(std::monostate()) {}
+      : Obj(static_type), location(location), closed(nil_val()) {}
 
   std::string to_repr() const override { return "<upvalue>"; }
 

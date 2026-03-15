@@ -3,7 +3,7 @@ CXX := clang++
 # NOTE: -MMD and -MP are used to generate a list of (header and source)
 # dependencies for each object file and header file. These have the `.d`
 # extension.
-CXXFLAGS := -std=c++20 -Wall -Wextra -Wimplicit-fallthrough -MMD -MP -Isrc -Wsign-conversion
+CXXFLAGS := -std=c++20 -Wall -Wextra -Wimplicit-fallthrough -MMD -MP -Isrc -Wsign-conversion -DNAN_BOXING
 
 UNAME := $(shell uname)
 ifeq ($(UNAME),Darwin)
