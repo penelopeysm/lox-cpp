@@ -28,7 +28,7 @@ constexpr double as_double(const Value& value) {
   return std::bit_cast<double>(value.data);
 }
 constexpr Value from_double(const double& d) {
-  return Value{std::bit_cast<Value>(d)};
+  return Value{std::bit_cast<uint64_t>(d)};
 }
 
 constexpr bool is_bool(const Value& value) { return (value.data | 1) == TRUE; }
