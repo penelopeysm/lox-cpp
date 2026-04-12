@@ -118,16 +118,22 @@ size_t lox::Chunk::constants_size() const { return constants.size(); }
 
 size_t lox::Chunk::debuginfo_size() const { return debuginfo.size(); }
 
-bool compare_by_offset(const lox::DebugInfo& info, size_t target) {
-  return info.bytecode_offset < target;
+bool compare_by_offset(size_t target, const lox::DebugInfo& info) {
+  return target < info.bytecode_offset;
 }
 
 size_t lox::Chunk::debuginfo_at(size_t bytecode_offset) const {
-  auto it = std::lower_bound(debuginfo.begin(), debuginfo.end(),
+  if (debuginfo.empty()) {
+    throw std::runtime_error("loxc: debuginfo_at: no debug info found");
+  }
+  // NOTE: upper_bound returns an iterator to the first element that is STRICTLY
+  // greater than the target. What that means is that the entry we want is
+  // really the one just before the returned iterator.
+  auto it = std::upper_bound(debuginfo.begin(), debuginfo.end(),
                              bytecode_offset, compare_by_offset);
-  if (it->bytecode_offset == bytecode_offset) {
-    return it->line;
-  } else if (it == debuginfo.begin()) {
+  // Unless it's the very first entry, which means that the debuginfo contains
+  // no line info for bytecode_offset. That is an error by construction.
+  if (it == debuginfo.begin()) {
     throw std::runtime_error(
         "loxc: debuginfo_at: no debug info for given bytecode offset");
   } else {
