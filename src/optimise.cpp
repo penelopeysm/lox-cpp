@@ -2,6 +2,7 @@
 #include "chunk.hpp"
 #include "value.hpp"
 #include <algorithm>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #ifdef LOX_DEBUG
@@ -10,6 +11,86 @@
 
 namespace lox {
 namespace optimise {
+
+bool AddLocalConstOptimisation::matches(const Chunk& chunk, const ChunkInfo& ci,
+                                        size_t instruction_index) const {
+  if (instruction_index + match_length() - 1 >= ci.instruction_offsets.size()) {
+    return false;
+  }
+  size_t i = instruction_index;
+  if (static_cast<OpCode>(chunk.at(ci.instruction_offsets[i])) ==
+          OpCode::GET_LOCAL &&
+      static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 1])) ==
+          OpCode::CONSTANT &&
+      static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 2])) ==
+          OpCode::ADD &&
+      static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 3])) ==
+          OpCode::SET_LOCAL &&
+      static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 4])) ==
+          OpCode::POP) {
+    uint8_t get_local_index = chunk.at(ci.instruction_offsets[i] + 1);
+    uint8_t set_local_index = chunk.at(ci.instruction_offsets[i + 3] + 1);
+    if (get_local_index == set_local_index &&
+        /* make sure that nothing tries to jump to the middle of this sequence
+         */
+        !(ci.jump_targets.contains(ci.instruction_offsets[i + 1]) ||
+          ci.jump_targets.contains(ci.instruction_offsets[i + 2]) ||
+          ci.jump_targets.contains(ci.instruction_offsets[i + 3]) ||
+          ci.jump_targets.contains(ci.instruction_offsets[i + 4]))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+size_t AddLocalConstOptimisation::match_length() const { return 5; }
+
+std::pair<size_t, size_t>
+AddLocalConstOptimisation::emit(const Chunk& old_chunk, size_t old_byte_offset,
+                                Chunk& new_chunk) const {
+  size_t line_number = old_chunk.debuginfo_at(old_byte_offset);
+  size_t local_index = old_chunk.at(old_byte_offset + 1);
+  size_t constant_index = old_chunk.at(old_byte_offset + 3);
+  new_chunk.write(static_cast<uint8_t>(OpCode::ADD_LOCAL_CONST), line_number);
+  new_chunk.write(local_index, line_number);
+  new_chunk.write(constant_index, line_number);
+  return {8, 3}; // 8 bytes read from old chunk, 3 bytes written to new chunk
+}
+
+bool LocalConstLessOptimisation::matches(const Chunk& chunk,
+                                         const ChunkInfo& ci,
+                                         size_t instruction_index) const {
+  if (instruction_index + match_length() - 1 >= ci.instruction_offsets.size()) {
+    return false;
+  }
+  size_t i = instruction_index;
+  if (static_cast<OpCode>(chunk.at(ci.instruction_offsets[i])) ==
+          OpCode::GET_LOCAL &&
+      static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 1])) ==
+          OpCode::CONSTANT &&
+      static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 2])) ==
+          OpCode::LESS) {
+    if (!(ci.jump_targets.contains(ci.instruction_offsets[i + 1]) ||
+          ci.jump_targets.contains(ci.instruction_offsets[i + 2]))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+size_t LocalConstLessOptimisation::match_length() const { return 3; }
+
+std::pair<size_t, size_t>
+LocalConstLessOptimisation::emit(const Chunk& old_chunk, size_t old_byte_offset,
+                                 Chunk& new_chunk) const {
+  size_t line_number = old_chunk.debuginfo_at(old_byte_offset);
+  size_t local_index = old_chunk.at(old_byte_offset + 1);
+  size_t constant_index = old_chunk.at(old_byte_offset + 3);
+  new_chunk.write(static_cast<uint8_t>(OpCode::LOCAL_CONST_LESS), line_number);
+  new_chunk.write(local_index, line_number);
+  new_chunk.write(constant_index, line_number);
+  return {5, 3};
+}
 
 ChunkInfo::ChunkInfo(const Chunk& chunk) : jumps(), instruction_offsets() {
   size_t offset = 0;
@@ -20,8 +101,8 @@ ChunkInfo::ChunkInfo(const Chunk& chunk) : jumps(), instruction_offsets() {
       uint8_t high_byte = chunk.at(offset + 1);
       uint8_t low_byte = chunk.at(offset + 2);
       ptrdiff_t jump_offset = lox::get_jump_offset(high_byte, low_byte);
-      // check for negative targets (just in case). note that we have to add 3
-      // to the offset here, because we jump after reading the offset
+      // check for negative targets (just in case). note that we have to add
+      // 3 to the offset here, because we jump after reading the offset
       ptrdiff_t tmp = static_cast<ptrdiff_t>(offset) + 3 + jump_offset;
       if (tmp < 0) {
         std::cerr << offset << " " << jump_offset << "\n";
@@ -56,8 +137,8 @@ ChunkInfo::ChunkInfo(const Chunk& chunk) : jumps(), instruction_offsets() {
 }
 
 /* Return the offset of the next instruction when linearly scanning through
- * the bytecode. If the current instruction is the last in the chunk, returns
- * the offset of the end of the chunk. */
+ * the bytecode. If the current instruction is the last in the chunk,
+ * returns the offset of the end of the chunk. */
 size_t next_instruction(const Chunk& chunk, size_t offset) {
   size_t nbytes = chunk.size();
   if (offset > nbytes) {
@@ -94,7 +175,6 @@ size_t next_instruction(const Chunk& chunk, size_t offset) {
   case OpCode::LESS:
   case OpCode::PRINT:
   case OpCode::POP:
-  case OpCode::NOP:
   case OpCode::INHERIT: {
     return offset + 1;
   }
@@ -116,6 +196,7 @@ size_t next_instruction(const Chunk& chunk, size_t offset) {
   }
 
   case OpCode::ADD_LOCAL_CONST:
+  case OpCode::LOCAL_CONST_LESS:
   case OpCode::INVOKE:
   case OpCode::SUPER_INVOKE:
   case OpCode::JUMP_IF_FALSE:
@@ -127,49 +208,33 @@ size_t next_instruction(const Chunk& chunk, size_t offset) {
                            std::to_string(instruction));
 }
 
-std::unordered_map<size_t, AddLocalConstInfo>
-get_alc_opportunities(const Chunk& chunk, const ChunkInfo& ci) {
-  std::unordered_map<size_t, AddLocalConstInfo> add_local_const_offsets;
-  // Gather potential optimisation opportunities for ADD_LOCAL_CONST
-  for (size_t i = 0; i + 4 < ci.instruction_offsets.size(); i++) {
-    if (static_cast<OpCode>(chunk.at(ci.instruction_offsets[i])) ==
-            OpCode::GET_LOCAL &&
-        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 1])) ==
-            OpCode::CONSTANT &&
-        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 2])) ==
-            OpCode::ADD &&
-        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 3])) ==
-            OpCode::SET_LOCAL &&
-        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 4])) ==
-            OpCode::POP) {
-      uint8_t get_local_index = chunk.at(ci.instruction_offsets[i] + 1);
-      uint8_t constant_index = chunk.at(ci.instruction_offsets[i + 1] + 1);
-      uint8_t set_local_index = chunk.at(ci.instruction_offsets[i + 3] + 1);
-      if (get_local_index == set_local_index &&
-          /* make sure that nothing tries to jump to the middle of this sequence
-           */
-          !(ci.jump_targets.contains(ci.instruction_offsets[i + 1]) ||
-            ci.jump_targets.contains(ci.instruction_offsets[i + 2]) ||
-            ci.jump_targets.contains(ci.instruction_offsets[i + 3]) ||
-            ci.jump_targets.contains(ci.instruction_offsets[i + 4]))) {
-#ifdef LOX_DEBUG
-        std::cerr << "Found potential ADD_LOCAL_CONST at offset "
-                  << ci.instruction_offsets[i] << " with local index "
-                  << +get_local_index << " and constant index "
-                  << +constant_index << "\n";
-#endif
-        add_local_const_offsets[ci.instruction_offsets[i]] =
-            AddLocalConstInfo{get_local_index, constant_index};
+std::unordered_map<size_t, size_t> find_optimisation_offsets(
+    const Chunk& chunk, const ChunkInfo& ci,
+    const std::vector<std::unique_ptr<PeepholeOptimisation>>& registry) {
+
+  std::unordered_map<size_t, size_t> optimisation_offsets;
+  size_t i = 0;
+  while (i < ci.instruction_offsets.size()) {
+    bool found_opt = false;
+    for (size_t opt_num = 0; opt_num < registry.size(); opt_num++) {
+      if (registry[opt_num]->matches(chunk, ci, i)) {
+        optimisation_offsets[ci.instruction_offsets[i]] = opt_num;
+        i += registry[opt_num]->match_length();
+        found_opt = true;
+        break;
       }
     }
+    if (!found_opt) {
+      i++;
+    }
   }
-  return add_local_const_offsets;
+  return optimisation_offsets;
 }
 
-Chunk apply_alc_opportunities(
+Chunk apply_optimisations(
     const Chunk& old_chunk, const ChunkInfo& ci,
-    const std::unordered_map<size_t, AddLocalConstInfo>&
-        add_local_const_offsets) {
+    const std::unordered_map<size_t, size_t>& optimisation_offsets,
+    const std::vector<std::unique_ptr<PeepholeOptimisation>>& registry) {
   Chunk new_chunk;
 
   // Rebuild constant table (just the same)
@@ -177,31 +242,24 @@ Chunk apply_alc_opportunities(
     new_chunk.push_constant(old_chunk.constant_at(i));
   }
 
-  // old offset <=> new offset maps
-  // Technically these could be std::vector<size_t>, but well.
+  // Build a old offset => new offset map so that we can patch jump offsets
+  // later.
   std::unordered_map<size_t, size_t> old_to_new_offset;
-  std::unordered_map<size_t, size_t> new_to_old_offset;
 
-  // Rebuild bytecode itself
+  // Rebuild bytecode itself + debuginfo
   size_t old_offset = 0;
   size_t new_offset = 0; // Every time we write to chunk we increment this
   while (old_offset < old_chunk.size()) {
-    // Record offset mapping
     old_to_new_offset[old_offset] = new_offset;
-    new_to_old_offset[new_offset] = old_offset;
     size_t line_number = old_chunk.debuginfo_at(old_offset);
 
     size_t next_old_offset = next_instruction(old_chunk, old_offset);
-    auto it = add_local_const_offsets.find(old_offset);
-    if (it != add_local_const_offsets.end()) {
-      // replace the next 8 bytes with a single ADD_LOCAL_CONST instruction
-      const AddLocalConstInfo& alc_info = it->second;
-      new_chunk.write(static_cast<uint8_t>(OpCode::ADD_LOCAL_CONST),
-                      line_number);
-      new_chunk.write(alc_info.local_index, line_number);
-      new_chunk.write(alc_info.constant_index, line_number);
-      old_offset += 8;
-      new_offset += 3;
+    auto it = optimisation_offsets.find(old_offset);
+    if (it != optimisation_offsets.end()) {
+      auto [old_bytes_read, new_bytes_written] =
+          registry[it->second]->emit(old_chunk, old_offset, new_chunk);
+      old_offset += old_bytes_read;
+      new_offset += new_bytes_written;
     } else {
       // just copy the instruction to the new chunk
       for (size_t i = old_offset; i < next_old_offset; i++) {
@@ -222,11 +280,10 @@ Chunk apply_alc_opportunities(
                                                 new_target_offset);
     // Should not fail but we can check anyway
     if (!success) {
-      throw std::runtime_error(
-          "loxc: apply_alc_opportunities: jump offset from " +
-          std::to_string(new_jump_offset) + " to " +
-          std::to_string(new_target_offset) +
-          " is too large to fit in two bytes");
+      throw std::runtime_error("loxc: apply_optimisations: jump offset from " +
+                               std::to_string(new_jump_offset) + " to " +
+                               std::to_string(new_target_offset) +
+                               " is too large to fit in two bytes");
     }
   }
 
@@ -238,8 +295,15 @@ Chunk peephole_optimise(Chunk& chunk) {
   return chunk;
 #else
   ChunkInfo chunk_info(chunk);
-  auto add_local_const_offsets = get_alc_opportunities(chunk, chunk_info);
-  return apply_alc_opportunities(chunk, chunk_info, add_local_const_offsets);
+  // NOTE: Can't use initialiser list because it copies whatever is passed to it
+  // and unique_ptr can't be copied
+  std::vector<std::unique_ptr<PeepholeOptimisation>> registry;
+  registry.push_back(std::make_unique<AddLocalConstOptimisation>());
+  registry.push_back(std::make_unique<LocalConstLessOptimisation>());
+
+  auto optimisation_offsets =
+      find_optimisation_offsets(chunk, chunk_info, registry);
+  return apply_optimisations(chunk, chunk_info, optimisation_offsets, registry);
 #endif
 }
 

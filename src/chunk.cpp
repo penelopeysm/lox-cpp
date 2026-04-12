@@ -226,9 +226,12 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
        << " constant_index=" << +constant_index << "\n";
     return offset + 3;
   }
-  case OpCode::NOP: {
-    os << "NOP\n";
-    return offset + 1;
+  case OpCode::LOCAL_CONST_LESS: {
+    uint8_t local_index = code[offset + 1];
+    uint8_t constant_index = code[offset + 1];
+    os << "LOCAL_CONST_LESS local_index=" << +local_index
+       << " constant_index=" << +constant_index << "\n";
+    return offset + 3;
   }
   case OpCode::NEGATE: {
     os << "NEGATE\n";

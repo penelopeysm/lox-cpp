@@ -636,7 +636,25 @@ InterpretResult VM::run() {
     set_local_variable(local_index, result);
     DISPATCH();
   }
-  DO_NOP: { DISPATCH(); }
+  DO_LOCAL_CONST_LESS: {
+    uint8_t local_index = *local_ip++;
+#ifdef LOX_DEBUG
+    if (static_cast<size_t>(local_index) > stack.size()) {
+      std::cerr << "stack_size=" << stack.size()
+                << ", local_index=" << +local_index << "\n";
+      error("ADD_LOCAL_CONST: invalid local variable index");
+    }
+#endif
+    lox::Value local_value = get_local_variable(local_index);
+    uint8_t constant_index = *local_ip++;
+    lox::Value cnst = chunkptr->constant_at(constant_index);
+    if (lox::is_double(local_value) && lox::is_double(cnst)) {
+      lox::Value result =
+          lox::from_bool(lox::as_double(local_value) < lox::as_double(cnst));
+      stack_push(result);
+    }
+    DISPATCH();
+  }
   DO_JUMP_IF_FALSE: {
     // Don't pop the condition yet, because we might need to use it for
     // logical shortcircuiting later.
