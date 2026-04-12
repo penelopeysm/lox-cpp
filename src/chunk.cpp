@@ -93,6 +93,24 @@ lox::Chunk& lox::Chunk::patch_at_offset(size_t offset, uint8_t byte) {
   return *this;
 }
 
+// First argument must be the first byte of the operand for the jump
+// instruction (i.e., the first byte after the opcode itself)
+bool lox::Chunk::patch_jump_operand(size_t jump_operand_byte,
+                                    size_t target_byte) {
+  // we subtract 2 because those are the two bytes that contain the offset, and
+  // those get read with read_byte() which increments the instruction pointer
+  // already. Use `int` here to catch under/overflow when computing the offset.
+  int jump_offset =
+      static_cast<int>(target_byte) - static_cast<int>(jump_operand_byte) - 2;
+  if (jump_offset > INT16_MAX || jump_offset < INT16_MIN) {
+    return false;
+  }
+  auto [high_byte, low_byte] = lox::split_jump_offset(jump_offset);
+  patch_at_offset(jump_operand_byte, high_byte);
+  patch_at_offset(jump_operand_byte + 1, low_byte);
+  return true;
+}
+
 lox::Chunk& lox::Chunk::reset() {
   // NOTE: clear() removes elements and so size() will return 0, but does not
   // change capacity
@@ -161,7 +179,7 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
   case OpCode::CONSTANT: {
     uint8_t constant_index = code[offset + 1];
     Value constant = constants[constant_index];
-    os << "CONSTANT " << constant << "\n";
+    os << "CONSTANT #" << +constant_index << " val=" << constant << "\n";
     return offset + 2;
   }
   case OpCode::CLOSURE: {
@@ -199,6 +217,17 @@ size_t lox::Chunk::disassemble(std::ostream& os, size_t offset,
   }
   case OpCode::DEFINE_METHOD: {
     os << "DEFINE_METHOD\n";
+    return offset + 1;
+  }
+  case OpCode::ADD_LOCAL_CONST: {
+    uint8_t local_index = code[offset + 1];
+    uint8_t constant_index = code[offset + 1];
+    os << "ADD_LOCAL_CONST local_index=" << +local_index
+       << " constant_index=" << +constant_index << "\n";
+    return offset + 3;
+  }
+  case OpCode::NOP: {
+    os << "NOP\n";
     return offset + 1;
   }
   case OpCode::NEGATE: {

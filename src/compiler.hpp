@@ -87,9 +87,9 @@ public:
   size_t push_constant(lox::Value value) {
     return current_function->chunk.push_constant(value);
   }
-  void patch_at_offset(size_t offset, uint8_t high_byte, uint8_t low_byte) {
-    current_function->chunk.patch_at_offset(offset, high_byte);
-    current_function->chunk.patch_at_offset(offset + 1, low_byte);
+  bool patch_jump_operand(size_t jump_operand_byte, size_t target_byte) {
+    return current_function->chunk.patch_jump_operand(jump_operand_byte,
+                                                      target_byte);
   }
 
   std::unique_ptr<Compiler> get_parent() { return std::move(parent); }
@@ -216,7 +216,7 @@ private:
   void emit_variable_access(lox::OpCode get_opcode, lox::OpCode set_opcode,
                             bool can_assign, size_t index);
   size_t emit_jump(lox::OpCode jump_opcode);
-  void patch_jump(size_t jump_byte, size_t jump_offset);
+  void patch_jump_operand(size_t jump_byte, size_t jump_offset);
   void emit_call(size_t arg_count);
 
   using ParserMemFn = void (Parser::*)(bool can_assign);

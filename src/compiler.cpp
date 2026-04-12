@@ -17,12 +17,6 @@ namespace {
 lox::scanner::Token SENTINEL_EOF =
     lox::scanner::Token(lox::scanner::TokenType::_EOF, "", 0);
 
-std::pair<uint8_t, uint8_t> split_jump_offset(int16_t offset) {
-  uint8_t high_byte = static_cast<uint8_t>((offset >> 8) & 0xff);
-  uint8_t low_byte = static_cast<uint8_t>(offset & 0xff);
-  return {high_byte, low_byte};
-}
-
 constexpr int16_t MAX_ARITY = 255;
 } // namespace
 
@@ -280,6 +274,7 @@ ObjFunction* Parser::finalise_function() {
     // Get the function object from the current compiler, and pop it off the
     // compiler stack.
     auto fnptr = compiler->get_current_function();
+    fnptr->optimise_chunk();
     compiler = compiler->get_parent();
     return fnptr;
   }
@@ -338,21 +333,12 @@ size_t Parser::emit_jump(lox::OpCode jump_opcode) {
   return get_chunk_size() - 2;
 }
 
-void Parser::patch_jump(size_t jump_byte, size_t target_byte) {
-  // we subtract 2 because those are the two bytes that contain the offset, and
-  // those get read with read_byte() which increments the instruction pointer
-  // already. Use `int` here to catch under/overflow when computing the offset.
-  int jump_offset =
-      static_cast<int>(target_byte) - static_cast<int>(jump_byte) - 2;
-  if (jump_offset > INT16_MAX || jump_offset < INT16_MIN) {
+void Parser::patch_jump_operand(size_t jump_byte, size_t target_byte) {
+  bool success = compiler->patch_jump_operand(jump_byte, target_byte);
+  if (!success) {
     error("Too much code to jump over.", previous.line);
     return;
   }
-  // Split the jump offset into two bytes
-  auto [high_byte, low_byte] =
-      split_jump_offset(static_cast<int16_t>(jump_offset));
-  // Patch the two bytes into the chunk
-  compiler->patch_at_offset(jump_byte, high_byte, low_byte);
 }
 
 void Parser::parse() {
@@ -696,13 +682,13 @@ void Parser::if_statement() {
   // When falling through the 'if' branch, we need to jump over the else
   // branch, so we emit an unconditional jump here.
   size_t else_jump_byte = emit_jump(lox::OpCode::JUMP);
-  patch_jump(jump_byte, get_chunk_size());
+  patch_jump_operand(jump_byte, get_chunk_size());
   // Pop the condition value before we enter the else branch.
   emit(lox::OpCode::POP);
   if (consume_if(TokenType::ELSE)) {
     statement();
   }
-  patch_jump(else_jump_byte, get_chunk_size());
+  patch_jump_operand(else_jump_byte, get_chunk_size());
 }
 
 void Parser::while_statement() {
@@ -716,8 +702,8 @@ void Parser::while_statement() {
   emit(lox::OpCode::POP);
   statement();
   size_t loop_jump = emit_jump(lox::OpCode::JUMP);
-  patch_jump(loop_jump, loop_start);
-  patch_jump(exit_jump, get_chunk_size());
+  patch_jump_operand(loop_jump, loop_start);
+  patch_jump_operand(exit_jump, get_chunk_size());
   // Pop the condition value when exiting the loop.
   emit(lox::OpCode::POP);
 }
@@ -758,19 +744,19 @@ void Parser::for_statement() {
 
   if (has_condition) {
     size_t to_cond_jump = emit_jump(lox::OpCode::JUMP);
-    patch_jump(to_cond_jump, cond_start);
+    patch_jump_operand(to_cond_jump, cond_start);
   }
 
-  patch_jump(to_body_jump, get_chunk_size());
+  patch_jump_operand(to_body_jump, get_chunk_size());
   if (has_condition) {
     // Pop the condition value before entering the loop body.
     emit(lox::OpCode::POP);
   }
   statement();
   size_t to_increment_jump = emit_jump(lox::OpCode::JUMP);
-  patch_jump(to_increment_jump, increment_start);
+  patch_jump_operand(to_increment_jump, increment_start);
   if (has_condition) {
-    patch_jump(exit_jump, get_chunk_size());
+    patch_jump_operand(exit_jump, get_chunk_size());
   }
   emit(lox::OpCode::POP);
 
@@ -904,7 +890,7 @@ void Parser::and_operator(bool _) {
   emit(lox::OpCode::POP);
   parse_precedence(Precedence::AND);
   // If we do follow the jump, we can skip over all of that.
-  patch_jump(end_jump, get_chunk_size());
+  patch_jump_operand(end_jump, get_chunk_size());
 }
 
 void Parser::or_operator(bool _) {
@@ -916,11 +902,11 @@ void Parser::or_operator(bool _) {
   // we can skip the right operand entirely.
   size_t jump_to_end = emit_jump(lox::OpCode::JUMP);
   // Patch the first jump to here, which is the start of the right operand.
-  patch_jump(jump_to_right_operand, get_chunk_size());
+  patch_jump_operand(jump_to_right_operand, get_chunk_size());
   emit(lox::OpCode::POP);
   parse_precedence(Precedence::OR);
   // Patch the jump to the end to here, which is after the right operand.
-  patch_jump(jump_to_end, get_chunk_size());
+  patch_jump_operand(jump_to_end, get_chunk_size());
 }
 
 void Parser::dot(bool can_assign) {

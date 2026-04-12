@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chunk.hpp"
+#include "optimise.hpp"
 #include "stringmap.hpp"
 #include "value_def.hpp"
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -97,6 +98,8 @@ public:
 
   static constexpr ObjType static_type = ObjType::FUNCTION;
   static constexpr std::string_view static_type_name = "ObjFunction";
+
+  void optimise_chunk() { chunk = lox::optimise::peephole_optimise(chunk); }
 };
 
 class ObjUpvalue : public Obj {

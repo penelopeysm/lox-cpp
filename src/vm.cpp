@@ -9,23 +9,6 @@
 #include <thread>
 
 namespace {
-ptrdiff_t get_jump_offset(uint8_t high_byte, uint8_t low_byte) {
-  // NOTE: we have to be really careful here about how we do the static_cast!
-  // The high and low bytes are encoded including the sign information as the
-  // most significant bit of the high byte. So we need to combine them into a
-  // single int16_t FIRST, so that the sign information is in the right place
-  // (i.e. the most significant bit of the int16_t), and then only convert to
-  // ptrdiff_t.
-  //
-  // If we did
-  //   static_cast<ptrdiff_t>(high_byte) << 8 | low_byte
-  //
-  // the sign bit would not be in the most significant bit of the ptrdiff_t, and
-  // so we would end up with a completely different number.
-  int16_t jump_offset = (static_cast<int16_t>(high_byte) << 8) | low_byte;
-  return static_cast<ptrdiff_t>(jump_offset);
-}
-
 lox::Value clock_native(size_t, const lox::Value*) {
   return lox::from_double(static_cast<double>(std::clock()) / CLOCKS_PER_SEC);
 }
@@ -40,23 +23,43 @@ lox::Value sleep_native(size_t, const lox::Value* args) {
   std::this_thread::sleep_for(std::chrono::duration<double>(seconds));
   return lox::Value{}; // return nil
 }
-
 } // namespace
 
 namespace lox {
 
 lox::InterpretResult interpret(std::string_view source) {
+#ifdef LOX_TIME
+  auto start_time = std::chrono::steady_clock::now();
+#endif
   // Instantiates a scanner that holds the source code; but doesn't actually
   // perform any scanning. Scanning will happen on demand!
   std::unique_ptr<scanner::Scanner> scanner =
       std::make_unique<scanner::Scanner>(source);
   Chunk chunk;
   GC gc;
-  // Create a top-level ObjFunction and invoke it.
+  // Create a top-level ObjFunction
   VM vm(std::move(scanner), std::move(gc));
+  InterpretResult compile_result = vm.compile();
+  if (compile_result != InterpretResult::OK) {
+    return compile_result;
+  }
+#ifdef LOX_TIME
+  auto compile_done_time = std::chrono::steady_clock::now();
+  auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+      compile_done_time - start_time);
+  std::cerr << "Compilation: " << elapsed_us.count() << " us\n";
+#endif
+  // Then invoke it
   vm.define_native("clock", 0, clock_native);
   vm.define_native("sleep", 1, sleep_native);
-  return vm.invoke_toplevel();
+  InterpretResult retval = vm.invoke_toplevel();
+#ifdef LOX_TIME
+  auto run_done_time = std::chrono::steady_clock::now();
+  elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+      run_done_time - compile_done_time);
+  std::cerr << "Execution: " << elapsed_us.count() << " us\n";
+#endif
+  return retval;
 }
 
 VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
@@ -72,20 +75,23 @@ VM::VM(std::unique_ptr<scanner::Scanner> scanner, GC gc)
   auto top_level_fn = _gc.alloc<ObjFunction>(top_level_str, size_t(0));
   parser = std::make_unique<Parser>(std::move(scanner), top_level_fn, _gc);
   initString = _gc.get_string_ptr("init");
-
   // Aggressive GC: run it every time we allocate
   _gc.set_alloc_callback([this]() { this->maybe_gc(); });
 }
 
-lox::InterpretResult VM::invoke_toplevel() {
+lox::InterpretResult VM::compile() {
   // parse the top-level source code
   parser->parse();
-  ObjFunction* top_level_fn = parser->finalise_function();
+  top_level_fn = parser->finalise_function();
   // if finalise_function returned nullptr, there was a compile error
   if (top_level_fn == nullptr) {
     // Parser will already have grumbled, no need to do it again here.
     return InterpretResult::COMPILE_ERROR;
   }
+  return InterpretResult::OK;
+}
+
+lox::InterpretResult VM::invoke_toplevel() {
   // Earlier we reserved stack slot zero for the VM. We have to mirror that
   // here. We push top_level_fn to the stack first so that it doesn't get
   // cleaned up during the call to _gc.alloc.
@@ -591,25 +597,46 @@ InterpretResult VM::run() {
   }
   DO_SET_LOCAL: {
     uint8_t local_index = *local_ip++;
+#ifdef LOX_DEBUG
     if (static_cast<size_t>(local_index) > stack.size()) {
       std::cerr << "stack_size=" << stack.size()
                 << ", local_index=" << +local_index << "\n";
       error("SET_LOCAL: invalid local variable index");
     }
+#endif
     set_local_variable(local_index, stack_peek());
     DISPATCH();
   }
   DO_GET_LOCAL: {
     uint8_t local_index = *local_ip++;
+#ifdef LOX_DEBUG
     if (static_cast<size_t>(local_index) > stack.size()) {
       std::cerr << "stack_size=" << stack.size()
                 << ", local_index=" << +local_index << "\n";
       error("GET_LOCAL: invalid local variable index");
     }
+#endif
     lox::Value local_value = get_local_variable(local_index);
     stack_push(local_value);
     DISPATCH();
   }
+  DO_ADD_LOCAL_CONST: {
+    uint8_t local_index = *local_ip++;
+#ifdef LOX_DEBUG
+    if (static_cast<size_t>(local_index) > stack.size()) {
+      std::cerr << "stack_size=" << stack.size()
+                << ", local_index=" << +local_index << "\n";
+      error("ADD_LOCAL_CONST: invalid local variable index");
+    }
+#endif
+    lox::Value local_value = get_local_variable(local_index);
+    uint8_t constant_index = *local_ip++;
+    lox::Value cnst = chunkptr->constant_at(constant_index);
+    lox::Value result = lox::add(local_value, cnst, _gc);
+    set_local_variable(local_index, result);
+    DISPATCH();
+  }
+  DO_NOP: { DISPATCH(); }
   DO_JUMP_IF_FALSE: {
     // Don't pop the condition yet, because we might need to use it for
     // logical shortcircuiting later.
@@ -617,7 +644,7 @@ InterpretResult VM::run() {
     if (!lox::is_truthy(condition)) {
       uint8_t high_byte = *local_ip++;
       uint8_t low_byte = *local_ip++;
-      ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
+      ptrdiff_t jump_offset = lox::get_jump_offset(high_byte, low_byte);
       local_ip += jump_offset;
     } else {
       local_ip += 2; // skip the jump offset bytes
@@ -627,7 +654,7 @@ InterpretResult VM::run() {
   DO_JUMP: {
     uint8_t high_byte = *local_ip++;
     uint8_t low_byte = *local_ip++;
-    ptrdiff_t jump_offset = get_jump_offset(high_byte, low_byte);
+    ptrdiff_t jump_offset = lox::get_jump_offset(high_byte, low_byte);
     local_ip += jump_offset;
     DISPATCH();
   }

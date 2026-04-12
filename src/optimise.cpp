@@ -1,0 +1,247 @@
+#include "optimise.hpp"
+#include "chunk.hpp"
+#include "value.hpp"
+#include <algorithm>
+#include <stdexcept>
+#include <string>
+#ifdef LOX_DEBUG
+#include <iostream>
+#endif
+
+namespace lox {
+namespace optimise {
+
+ChunkInfo::ChunkInfo(const Chunk& chunk) : jumps(), instruction_offsets() {
+  size_t offset = 0;
+  while (offset < chunk.size()) {
+    // Check if the opcode is a jump
+    OpCode instruction = static_cast<OpCode>(chunk.at(offset));
+    if (instruction == OpCode::JUMP || instruction == OpCode::JUMP_IF_FALSE) {
+      uint8_t high_byte = chunk.at(offset + 1);
+      uint8_t low_byte = chunk.at(offset + 2);
+      ptrdiff_t jump_offset = lox::get_jump_offset(high_byte, low_byte);
+      // check for negative targets (just in case). note that we have to add 3
+      // to the offset here, because we jump after reading the offset
+      ptrdiff_t tmp = static_cast<ptrdiff_t>(offset) + 3 + jump_offset;
+      if (tmp < 0) {
+        std::cerr << offset << " " << jump_offset << "\n";
+        throw std::runtime_error("invalid jump to before start of chunk!");
+      }
+      // if it's fine we can safely cast back to size_t
+      size_t target_offset = static_cast<size_t>(tmp);
+      jumps[offset] = target_offset;
+      jump_targets.insert(target_offset);
+    }
+    instruction_offsets.push_back(offset);
+    offset = next_instruction(chunk, offset);
+  }
+
+  // Check that all jump targets are valid instruction offsets
+  for (const auto& [_, target_offset] : jumps) {
+    if (!std::binary_search(instruction_offsets.begin(),
+                            instruction_offsets.end(), target_offset)) {
+      throw std::runtime_error("invalid jump target offset " +
+                               std::to_string(target_offset) +
+                               " is not a valid instruction");
+    }
+  }
+
+#ifdef LOX_DEBUG
+  std::cerr << "collected chunk info \n";
+  for (const auto& [jump_offset, target_offset] : jumps) {
+    std::cerr << "jump at offset " << jump_offset << " to target offset "
+              << target_offset << "\n";
+  }
+#endif
+}
+
+/* Return the offset of the next instruction when linearly scanning through
+ * the bytecode. If the current instruction is the last in the chunk, returns
+ * the offset of the end of the chunk. */
+size_t next_instruction(const Chunk& chunk, size_t offset) {
+  size_t nbytes = chunk.size();
+  if (offset > nbytes) {
+    throw std::out_of_range("loxc: Chunk::disassemble: offset " +
+                            std::to_string(offset) + " out of range (size " +
+                            std::to_string(nbytes) + ")");
+  } else if (offset == nbytes) {
+    return offset;
+  }
+
+  uint8_t instruction = chunk.at(offset);
+  switch (static_cast<OpCode>(instruction)) {
+
+  case OpCode::CLOSURE: {
+    // get the ObjFunction from the constant table
+    uint8_t constant_index = chunk.at(offset + 1);
+    auto function =
+        static_cast<ObjFunction*>(as_obj(chunk.constant_at(constant_index)));
+    size_t n_upvalues = function->upvalues.size();
+    return offset + 2 + 2 * n_upvalues;
+  }
+
+  case OpCode::CLOSE_UPVALUE:
+  case OpCode::RETURN:
+  case OpCode::DEFINE_METHOD:
+  case OpCode::NEGATE:
+  case OpCode::ADD:
+  case OpCode::SUBTRACT:
+  case OpCode::MULTIPLY:
+  case OpCode::DIVIDE:
+  case OpCode::NOT:
+  case OpCode::EQUAL:
+  case OpCode::GREATER:
+  case OpCode::LESS:
+  case OpCode::PRINT:
+  case OpCode::POP:
+  case OpCode::NOP:
+  case OpCode::INHERIT: {
+    return offset + 1;
+  }
+
+  case OpCode::CONSTANT:
+  case OpCode::GET_UPVALUE:
+  case OpCode::SET_UPVALUE:
+  case OpCode::CLASS:
+  case OpCode::GET_PROPERTY:
+  case OpCode::SET_PROPERTY:
+  case OpCode::GET_GLOBAL:
+  case OpCode::SET_GLOBAL:
+  case OpCode::DEFINE_GLOBAL:
+  case OpCode::SET_LOCAL:
+  case OpCode::GET_LOCAL:
+  case OpCode::CALL:
+  case OpCode::GET_SUPER: {
+    return offset + 2;
+  }
+
+  case OpCode::ADD_LOCAL_CONST:
+  case OpCode::INVOKE:
+  case OpCode::SUPER_INVOKE:
+  case OpCode::JUMP_IF_FALSE:
+  case OpCode::JUMP: {
+    return offset + 3;
+  }
+  }
+  throw std::runtime_error("loxc: Chunk::disassemble: unknown opcode " +
+                           std::to_string(instruction));
+}
+
+std::unordered_map<size_t, AddLocalConstInfo>
+get_alc_opportunities(const Chunk& chunk, const ChunkInfo& ci) {
+  std::unordered_map<size_t, AddLocalConstInfo> add_local_const_offsets;
+  // Gather potential optimisation opportunities for ADD_LOCAL_CONST
+  for (size_t i = 0; i + 4 < ci.instruction_offsets.size(); i++) {
+    if (static_cast<OpCode>(chunk.at(ci.instruction_offsets[i])) ==
+            OpCode::GET_LOCAL &&
+        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 1])) ==
+            OpCode::CONSTANT &&
+        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 2])) ==
+            OpCode::ADD &&
+        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 3])) ==
+            OpCode::SET_LOCAL &&
+        static_cast<OpCode>(chunk.at(ci.instruction_offsets[i + 4])) ==
+            OpCode::POP) {
+      uint8_t get_local_index = chunk.at(ci.instruction_offsets[i] + 1);
+      uint8_t constant_index = chunk.at(ci.instruction_offsets[i + 1] + 1);
+      uint8_t set_local_index = chunk.at(ci.instruction_offsets[i + 3] + 1);
+      if (get_local_index == set_local_index &&
+          /* make sure that nothing tries to jump to the middle of this sequence
+           */
+          !(ci.jump_targets.contains(ci.instruction_offsets[i + 1]) ||
+            ci.jump_targets.contains(ci.instruction_offsets[i + 2]) ||
+            ci.jump_targets.contains(ci.instruction_offsets[i + 3]) ||
+            ci.jump_targets.contains(ci.instruction_offsets[i + 4]))) {
+#ifdef LOX_DEBUG
+        std::cerr << "Found potential ADD_LOCAL_CONST at offset "
+                  << ci.instruction_offsets[i] << " with local index "
+                  << +get_local_index << " and constant index "
+                  << +constant_index << "\n";
+#endif
+        add_local_const_offsets[ci.instruction_offsets[i]] =
+            AddLocalConstInfo{get_local_index, constant_index};
+      }
+    }
+  }
+  return add_local_const_offsets;
+}
+
+Chunk apply_alc_opportunities(
+    const Chunk& old_chunk, const ChunkInfo& ci,
+    const std::unordered_map<size_t, AddLocalConstInfo>&
+        add_local_const_offsets) {
+  Chunk new_chunk;
+
+  // Rebuild constant table (just the same)
+  for (size_t i = 0; i < old_chunk.constants_size(); i++) {
+    new_chunk.push_constant(old_chunk.constant_at(i));
+  }
+
+  // old offset <=> new offset maps
+  // Technically these could be std::vector<size_t>, but well.
+  std::unordered_map<size_t, size_t> old_to_new_offset;
+  std::unordered_map<size_t, size_t> new_to_old_offset;
+
+  // Rebuild bytecode itself
+  size_t old_offset = 0;
+  size_t new_offset = 0; // Every time we write to chunk we increment this
+  while (old_offset < old_chunk.size()) {
+    // Record offset mapping
+    old_to_new_offset[old_offset] = new_offset;
+    new_to_old_offset[new_offset] = old_offset;
+    size_t line_number = old_chunk.debuginfo_at(old_offset);
+
+    size_t next_old_offset = next_instruction(old_chunk, old_offset);
+    auto it = add_local_const_offsets.find(old_offset);
+    if (it != add_local_const_offsets.end()) {
+      // replace the next 8 bytes with a single ADD_LOCAL_CONST instruction
+      const AddLocalConstInfo& alc_info = it->second;
+      new_chunk.write(static_cast<uint8_t>(OpCode::ADD_LOCAL_CONST),
+                      line_number);
+      new_chunk.write(alc_info.local_index, line_number);
+      new_chunk.write(alc_info.constant_index, line_number);
+      old_offset += 8;
+      new_offset += 3;
+    } else {
+      // just copy the instruction to the new chunk
+      for (size_t i = old_offset; i < next_old_offset; i++) {
+        new_chunk.write(old_chunk.at(i), line_number);
+        new_offset++;
+      }
+      old_offset = next_old_offset;
+    }
+  }
+
+  // Patch jump offsets in new chunk
+  for (const auto& [old_jump_offset, old_target_offset] : ci.jumps) {
+    size_t new_jump_offset = old_to_new_offset.at(old_jump_offset);
+    size_t new_target_offset = old_to_new_offset.at(old_target_offset);
+    // To patch the jump operand, we need to move one past the opcode itself
+    size_t new_jump_operand_offset = new_jump_offset + 1;
+    bool success = new_chunk.patch_jump_operand(new_jump_operand_offset,
+                                                new_target_offset);
+    // Should not fail but we can check anyway
+    if (!success) {
+      throw std::runtime_error(
+          "loxc: apply_alc_opportunities: jump offset from " +
+          std::to_string(new_jump_offset) + " to " +
+          std::to_string(new_target_offset) +
+          " is too large to fit in two bytes");
+    }
+  }
+
+  return new_chunk;
+}
+
+Chunk peephole_optimise(Chunk& chunk) {
+#ifdef LOX_NO_OPTIMISE
+  return chunk;
+#else
+  ChunkInfo chunk_info(chunk);
+  auto add_local_const_offsets = get_alc_opportunities(chunk, chunk_info);
+  return apply_alc_opportunities(chunk, chunk_info, add_local_const_offsets);
+#endif
+}
+
+} // namespace optimise
+} // namespace lox

@@ -17,8 +17,10 @@ ifeq ($(BUILD),debug)
 	CXXFLAGS += -g -O0 -DLOX_DEBUG # -DLOX_GC_DEBUG
 else ifeq ($(BUILD),release)
 	CXXFLAGS += -O3
+else ifeq ($(BUILD),time)
+	CXXFLAGS += -O3 -DLOX_TIME
 else
-	$(error Unknown build type: $(BUILD). Valid options are "debug" and "release".)
+	$(error Unknown build type: $(BUILD). Valid options are "debug", "release", and "time".)
 endif
 
 # NOTE: Phony targets are targets that aren't actual files. If you don't

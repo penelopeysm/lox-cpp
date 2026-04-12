@@ -54,6 +54,7 @@ public:
   VM(std::unique_ptr<scanner::Scanner> scanner, GC gc);
   InterpretResult run();
   std::ostream& stack_dump(std::ostream& out) const;
+  InterpretResult compile();
   InterpretResult invoke_toplevel();
   VM& define_native(
       const std::string& name, size_t arity,
@@ -74,6 +75,9 @@ private:
   // Interned string for "init", which we use when we need to look up the
   // initialiser method of a class.
   ObjString* initString;
+  // Top-level function, which is populated after compilation and then called
+  // in invoke_toplevel.
+  ObjFunction* top_level_fn;
 
   CallFrame& current_frame() { return call_frames.back(); }
   Chunk* get_chunk_ptr() { return &current_frame().closure->function->chunk; }
