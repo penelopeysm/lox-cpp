@@ -352,11 +352,13 @@ Chunk apply_optimisations(
   return new_chunk;
 }
 
-Chunk peephole_optimise(Chunk& chunk) {
+Chunk peephole_optimise(const Chunk& chunk) {
 #ifdef LOX_NO_OPTIMISE
   return chunk;
 #else
-  ChunkInfo chunk_info(chunk);
+  Chunk current = chunk;
+
+  ChunkInfo chunk_info(current);
   // NOTE: Can't use initialiser list because it copies whatever is passed to it
   // and unique_ptr can't be copied
   std::vector<std::unique_ptr<PeepholeOptimisation>> registry;
@@ -365,8 +367,15 @@ Chunk peephole_optimise(Chunk& chunk) {
   registry.push_back(std::make_unique<FoldConstantNumAddOptimisation>());
 
   auto optimisation_offsets =
-      find_optimisation_offsets(chunk, chunk_info, registry);
-  return apply_optimisations(chunk, chunk_info, optimisation_offsets, registry);
+      find_optimisation_offsets(current, chunk_info, registry);
+
+  while (!optimisation_offsets.empty()) {
+    current =
+        apply_optimisations(current, chunk_info, optimisation_offsets, registry);
+    chunk_info = ChunkInfo(current);
+    optimisation_offsets = find_optimisation_offsets(current, chunk_info, registry);
+  }
+  return current;
 #endif
 }
 

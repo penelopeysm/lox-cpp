@@ -69,7 +69,7 @@ public:
 
 size_t next_instruction(const Chunk& chunk, size_t offset);
 
-Chunk peephole_optimise(Chunk& chunk);
+Chunk peephole_optimise(const Chunk& chunk);
 
 } // namespace optimise
 } // namespace lox
