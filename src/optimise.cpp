@@ -49,8 +49,8 @@ std::pair<size_t, size_t>
 AddLocalConstOptimisation::emit(const Chunk& old_chunk, size_t old_byte_offset,
                                 Chunk& new_chunk) const {
   size_t line_number = old_chunk.debuginfo_at(old_byte_offset);
-  size_t local_index = old_chunk.at(old_byte_offset + 1);
-  size_t constant_index = old_chunk.at(old_byte_offset + 3);
+  uint8_t local_index = old_chunk.at(old_byte_offset + 1);
+  uint8_t constant_index = old_chunk.at(old_byte_offset + 3);
   new_chunk.write(static_cast<uint8_t>(OpCode::ADD_LOCAL_CONST), line_number);
   new_chunk.write(local_index, line_number);
   new_chunk.write(constant_index, line_number);
@@ -84,8 +84,8 @@ std::pair<size_t, size_t>
 LocalConstLessOptimisation::emit(const Chunk& old_chunk, size_t old_byte_offset,
                                  Chunk& new_chunk) const {
   size_t line_number = old_chunk.debuginfo_at(old_byte_offset);
-  size_t local_index = old_chunk.at(old_byte_offset + 1);
-  size_t constant_index = old_chunk.at(old_byte_offset + 3);
+  uint8_t local_index = old_chunk.at(old_byte_offset + 1);
+  uint8_t constant_index = old_chunk.at(old_byte_offset + 3);
   new_chunk.write(static_cast<uint8_t>(OpCode::LOCAL_CONST_LESS), line_number);
   new_chunk.write(local_index, line_number);
   new_chunk.write(constant_index, line_number);
