@@ -92,6 +92,66 @@ LocalConstLessOptimisation::emit(const Chunk& old_chunk, size_t old_byte_offset,
   return {5, 3};
 }
 
+bool FoldConstantNumAddOptimisation::matches(const Chunk& chunk,
+                                             const ChunkInfo& ci,
+                                             size_t instruction_index) const {
+  if (instruction_index + match_length() - 1 >= ci.instruction_offsets.size()) {
+    return false;
+  }
+  size_t i = instruction_index;
+  size_t const1_byte_offset = ci.instruction_offsets[i];
+  size_t const2_byte_offset = ci.instruction_offsets[i + 1];
+  size_t add_byte_offset = ci.instruction_offsets[i + 2];
+  // First check if the instructions themselves match
+  if (static_cast<OpCode>(chunk.at(const1_byte_offset)) == OpCode::CONSTANT &&
+      static_cast<OpCode>(chunk.at(const2_byte_offset)) == OpCode::CONSTANT &&
+      static_cast<OpCode>(chunk.at(add_byte_offset)) == OpCode::ADD &&
+      (!(ci.jump_targets.contains(const2_byte_offset) ||
+         ci.jump_targets.contains(add_byte_offset)))) {
+    // then check whether both the constants are numbers
+    uint8_t const1_index = chunk.at(const1_byte_offset + 1);
+    uint8_t const2_index = chunk.at(const2_byte_offset + 1);
+    lox::Value const1 = chunk.constant_at(const1_index);
+    lox::Value const2 = chunk.constant_at(const2_index);
+    return lox::is_double(const1) && lox::is_double(const2);
+    // TODO: could also handle the string-string case but is trickier as we have
+    // to wire in the interning table
+  }
+  return false;
+}
+
+size_t FoldConstantNumAddOptimisation::match_length() const { return 3; }
+
+std::pair<size_t, size_t> FoldConstantNumAddOptimisation::emit(
+    const Chunk& old_chunk, size_t old_byte_offset, Chunk& new_chunk) const {
+  // First of all we need to check that there is enough space for the new
+  // constant to be added to the constant table.
+  if (new_chunk.constants_size() > UINT8_MAX) {
+    // If not, then we can't apply this optimisation. Just emit the old bytes.
+    for (size_t i = old_byte_offset; i < old_byte_offset + 5; i++) {
+      new_chunk.write(old_chunk.at(i), old_chunk.debuginfo_at(i));
+    }
+    return {5, 5};
+  } else {
+    // get the line number for debuginfo from the add
+    size_t line_number = old_chunk.debuginfo_at(old_byte_offset + 4);
+    // get the numbers and add them. At this point we have already confirmed
+    // that they are doubles so we can safely use as_double
+    uint8_t const1_index = old_chunk.at(old_byte_offset + 1);
+    uint8_t const2_index = old_chunk.at(old_byte_offset + 3);
+    lox::Value const1 = old_chunk.constant_at(const1_index);
+    lox::Value const2 = old_chunk.constant_at(const2_index);
+    lox::Value result =
+        from_double(lox::as_double(const1) + lox::as_double(const2));
+    // add the result to the constant table and emit a single CONSTANT
+    // instruction
+    size_t new_constant_idx = new_chunk.push_constant(result);
+    new_chunk.write(static_cast<uint8_t>(OpCode::CONSTANT), line_number);
+    new_chunk.write(static_cast<uint8_t>(new_constant_idx), line_number);
+    return {5, 2};
+  }
+}
+
 ChunkInfo::ChunkInfo(const Chunk& chunk) : jumps(), instruction_offsets() {
   size_t offset = 0;
   while (offset < chunk.size()) {
@@ -237,7 +297,9 @@ Chunk apply_optimisations(
     const std::vector<std::unique_ptr<PeepholeOptimisation>>& registry) {
   Chunk new_chunk;
 
-  // Rebuild constant table (just the same)
+  // Rebuild constant table before adding in any optimisations. Note that
+  // optimisations may add to the constant table (e.g. if we perform constant
+  // folding) so we need to do this _before_ applying any optimisations.
   for (size_t i = 0; i < old_chunk.constants_size(); i++) {
     new_chunk.push_constant(old_chunk.constant_at(i));
   }
@@ -300,6 +362,7 @@ Chunk peephole_optimise(Chunk& chunk) {
   std::vector<std::unique_ptr<PeepholeOptimisation>> registry;
   registry.push_back(std::make_unique<AddLocalConstOptimisation>());
   registry.push_back(std::make_unique<LocalConstLessOptimisation>());
+  registry.push_back(std::make_unique<FoldConstantNumAddOptimisation>());
 
   auto optimisation_offsets =
       find_optimisation_offsets(chunk, chunk_info, registry);

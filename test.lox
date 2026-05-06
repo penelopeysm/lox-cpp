@@ -1,9 +1,5 @@
 fun f() {
-    var s = 0;
-    for (var i = 0; i < 1000000; i = i + 1) {
-        s = s + 2;
-    }
-    return s;
+    return 1 + 2;
 }
 
 print f();

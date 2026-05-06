@@ -11,6 +11,8 @@ make
 
 By default it builds a debug version; use `make BUILD=release` to disable that.
 
+You can also build a version that benchmarks compilation and execution times with `make BUILD=time`.
+
 ## Generating `compile_commands.json`
 
 This is needed to make clang-based tools (like clangd) work properly:

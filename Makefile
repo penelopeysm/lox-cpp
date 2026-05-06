@@ -52,7 +52,7 @@ DEPS := $(SRCS:.cpp=.d)
 # doesn't include instructions for actually building the object files. In fact,
 # Make has a built-in rule for building `.o` files from `.cpp` files, so we could
 # get away without specifying it; but it's probably better to be explicit.
-%.o: %.cpp
+src/%.o: src/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 APP_OBJS := app/main.o
@@ -67,12 +67,16 @@ TEST_RUNNER_EXECUTABLE := tests/test_runner
 # NOTE: I had to find the name `catch2-with-main` by inspecting the contents of
 # $(brew --prefix catch2)/share/pkgconfig. Homebrew doesn't really expose this to
 # you (even though it does install catch2-with-main when you install catch 2).
-CATCH2_FLAGS := $(shell pkg-config --cflags --libs catch2-with-main)
+CATCH2_PREFIX := $(shell brew --prefix catch2)
+CATCH2_CXXFLAGS := $(shell PKG_CONFIG_PATH=$(CATCH2_PREFIX)/share/pkgconfig pkg-config --cflags catch2-with-main)
+CATCH2_LDFLAGS := $(shell PKG_CONFIG_PATH=$(CATCH2_PREFIX)/share/pkgconfig pkg-config --libs catch2-with-main)
+tests/%.o: tests/%.cpp
+	$(CXX) $(CXXFLAGS) $(CATCH2_CXXFLAGS) -c $< -o $@
 # NOTE: $(CATCH2_FLAGS) MUST come after the object files, because the linker
 # needs to see the object files first to know what symbols are needed from the
 # Catch2 library. It can't 'revisit' older object files to resolve symbols.
 $(TEST_RUNNER_EXECUTABLE): $(OBJS) $(TEST_OBJS)
-	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_RUNNER_EXECUTABLE) $^ $(CATCH2_FLAGS)
+	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_RUNNER_EXECUTABLE) $^ $(CATCH2_LDFLAGS)
 
 test: $(APP) $(TEST_RUNNER_EXECUTABLE)
 	./$(TEST_RUNNER_EXECUTABLE) && ./tests/e2e.sh
